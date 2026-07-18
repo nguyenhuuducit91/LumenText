@@ -1,0 +1,71 @@
+{
+  "name": "lumen",
+  "productName": "Lumen",
+  "version": "0.1.0",
+  "description": "A fast, modern code editor for Ubuntu built with Electron + Monaco, with inline fcitx Vietnamese input support.",
+  "homepage": "https://github.com/lumen-editor/lumen",
+  "author": {
+    "name": "Lumen",
+    "email": "duc.nguyenhuu@vietis.com.vn"
+  },
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "bench": "node scripts/bench-largefile.js",
+    "dist:deb": "electron-builder --linux deb",
+    "dist:appimage": "electron-builder --linux AppImage",
+    "dist": "electron-builder --linux deb AppImage"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2"
+  },
+  "optionalDependencies": {
+    "typescript": "^5.6.3",
+    "typescript-language-server": "^4.3.3"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lumen.editor",
+    "productName": "Lumen",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "node_modules/monaco-editor/min/**/*",
+      "!node_modules/monaco-editor/esm/**/*",
+      "!node_modules/monaco-editor/dev/**/*"
+    ],
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Development",
+      "icon": "build/icons",
+      "maintainer": "duc.nguyenhuu@vietis.com.vn",
+      "desktop": {
+        "Name": "Lumen",
+        "Comment": "A fast modern code editor",
+        "Categories": "Development;TextEditor;IDE;",
+        "MimeType": "text/plain;text/x-python;application/javascript;text/html;"
+      }
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils"
+      ]
+    }
+  }
+}

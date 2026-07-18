@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: file:; img-src 'self' data: file:;" />
+  <title>Lumen</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar / project tree -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span id="project-name">NO FOLDER OPEN</span>
+        <div class="sidebar-actions">
+          <button id="side-new-file" title="New File">🗋</button>
+          <button id="side-new-folder" title="New Folder">🗀</button>
+          <button id="side-collapse" title="Collapse All">⇊</button>
+          <button id="side-refresh" title="Refresh">⟳</button>
+          <button id="open-folder-btn" title="Open Folder">＋</button>
+        </div>
+      </div>
+      <div id="file-tree" class="file-tree"></div>
+    </aside>
+
+    <div id="sidebar-resizer" class="resizer"></div>
+
+    <!-- Main editor area -->
+    <main id="main">
+      <div class="tab-strip">
+        <div id="tabbar" class="tabbar"></div>
+        <button class="tabbar-btn" id="tab-new" title="New Tab (Ctrl+N)">＋</button>
+        <button class="tabbar-btn" id="tab-menu" title="Open Tabs">▾</button>
+      </div>
+      <div id="editors" class="editors">
+        <div class="pane" data-pane="0">
+          <div class="editor-host" id="editor-0"></div>
+        </div>
+
+        <!-- Find in Files results panel -->
+        <div id="find-panel" class="find-panel hidden">
+          <div class="find-bar">
+            <input id="find-query" type="text" placeholder="Find in Files…" autocomplete="off" spellcheck="false" />
+            <button class="find-toggle" id="find-case" title="Case sensitive">Aa</button>
+            <button class="find-toggle" id="find-word" title="Whole word">W</button>
+            <button class="find-toggle" id="find-regex" title="Regular expression">.*</button>
+            <button class="find-close" id="find-close" title="Close (Esc)">✕</button>
+          </div>
+          <div class="find-summary" id="find-summary">Type a query and press Enter to search the open folder.</div>
+          <div class="find-results" id="find-results"></div>
+        </div>
+
+        <!-- Build / output panel -->
+        <div id="output-panel" class="output-panel hidden">
+          <div class="output-bar">
+            <span class="output-title" id="output-title">Output</span>
+            <span class="output-status" id="output-status"></span>
+            <span class="output-spacer"></span>
+            <button class="find-toggle" id="output-rerun" title="Re-run">↻</button>
+            <button class="find-toggle" id="output-stop" title="Stop">■</button>
+            <button class="find-close" id="output-close" title="Close (Esc)">✕</button>
+          </div>
+          <pre class="output-body" id="output-body"></pre>
+        </div>
+      </div>
+      <div id="statusbar" class="statusbar">
+        <span id="status-left"></span>
+        <span id="status-right">
+          <span id="status-macro" class="status-item status-rec" style="display:none">● REC</span>
+          <span id="status-lsp" class="status-item status-lsp" style="display:none" title="Language server active (JS/TS)">◍ LSP</span>
+          <span id="status-branch" class="status-item git-branch" style="display:none"></span>
+          <span id="status-pos" class="status-item click" title="Go to line">Ln 1, Col 1</span>
+          <span id="status-indent" class="status-item">Spaces: 4</span>
+          <span id="status-enc" class="status-item">UTF-8</span>
+          <span id="status-eol" class="status-item click" title="Line endings (click to convert)">LF</span>
+          <span id="status-lang" class="status-item click" title="Set syntax">Plain Text</span>
+          <span id="status-ime" class="status-item" title="Vietnamese input via fcitx">IME: fcitx</span>
+        </span>
+      </div>
+    </main>
+  </div>
+
+  <!-- Command palette / quick open overlay -->
+  <div id="palette" class="palette hidden">
+    <div class="palette-box">
+      <input id="palette-input" type="text" autocomplete="off" spellcheck="false" />
+      <ul id="palette-list" class="palette-list"></ul>
+    </div>
+  </div>
+
+  <!-- App modules define window.LUM.* before Monaco boots -->
+  <script src="js/icons.js"></script>
+  <script src="../shared/tabutil.js"></script>
+  <script src="../shared/pathops.js"></script>
+  <script src="js/textcase.js"></script>
+  <script src="js/permute.js"></script>
+  <script src="js/wrap.js"></script>
+  <script src="js/dialog.js"></script>
+  <script src="js/menu.js"></script>
+  <script src="js/commands.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/textops.js"></script>
+  <script src="js/largefile.js"></script>
+  <script src="js/sidebar.js"></script>
+  <script src="js/project.js"></script>
+  <script src="js/palette.js"></script>
+  <script src="js/findinfiles.js"></script>
+  <script src="js/keymap.js"></script>
+  <script src="js/git.js"></script>
+  <script src="js/snippets.js"></script>
+  <script src="js/bookmarks.js"></script>
+  <script src="js/build.js"></script>
+  <script src="js/macros.js"></script>
+  <script src="js/nav.js"></script>
+  <script src="js/symbols.js"></script>
+  <script src="js/lsp.js"></script>
+  <script src="js/invisibles.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- Monaco AMD loader (shipped in node_modules/monaco-editor/min/vs) -->
+  <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
+  <script>
+    // Configure the loader against the local Monaco bundle exposed by preload.
+    const VS = window.lumen.vsBase; // file:///.../monaco-editor/min/vs
+    require.config({
+      paths: { vs: VS },
+      'vs/nls': { availableLanguages: {} } // keep default English UI strings
+    });
+
+    // Web worker bootstrap: workers can't be loaded from file:// directly, so we
+    // hand Monaco a data: URI worker that importScripts the real worker bundle.
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        return (
+          'data:text/javascript;charset=utf-8,' +
+          encodeURIComponent(
+            'self.MonacoEnvironment = { baseUrl: "' + VS + '/../" };\n' +
+            'importScripts("' + VS + '/base/worker/workerMain.js");'
+          )
+        );
+      }
+    };
+
+    require(['vs/editor/editor.main'], function () {
+      window.LUM.boot(); // Monaco ready -> start the app
+    });
+  </script>
+</body>
+</html>
