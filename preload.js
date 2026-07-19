@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('lumen', {
   move: (a, b) => ipcRenderer.invoke('fs:move', a, b),
   trash: (p) => ipcRenderer.invoke('fs:delete', p),
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 
   // windows
   newWindow: (openPath) => ipcRenderer.invoke('win:new', openPath),

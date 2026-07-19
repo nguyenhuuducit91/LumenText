@@ -151,10 +151,14 @@ LUM.editor = (function () {
     pane.currentId = id;
 
     if (buf.kind === 'large') {
-      // Hand the pane region over to the streaming viewer.
+      // Hand the pane region over to the streaming viewer. Detach the previous
+      // text model so editor actions (Format, Sort, Paste-and-Indent, …) can't
+      // silently mutate a hidden buffer while a large file is shown.
+      pane.editor.setModel(null);
       LUM.largefile.show(buf.lf);
       renderTabs();
       updateStatus();
+      if (LUM.find && LUM.find.isOpen && LUM.find.isOpen()) LUM.find.refresh();
       return;
     }
 
@@ -166,6 +170,7 @@ LUM.editor = (function () {
     renderTabs();
     updateStatus();
     if (LUM.git) LUM.git.scheduleDiff();
+    if (LUM.find && LUM.find.isOpen && LUM.find.isOpen()) LUM.find.refresh();
   }
 
   function newFile() {
@@ -183,7 +188,30 @@ LUM.editor = (function () {
 
   // opts.preview: open as a transient preview tab (single click). A second
   // open of the same file, or an explicit non-preview open, makes it permanent.
-  async function openPath(filePath, opts = {}) {
+  // Public entry: dedupe concurrent opens of the same path. A physical
+  // double-click fires click,click,dblclick — without this guard each pass runs
+  // openPath's "already open?" check before the async read resolves, so several
+  // buffers get created for one file. We collapse them onto one in-flight open,
+  // and if any caller wants a permanent (non-preview) tab, the result is promoted.
+  const inflightOpens = new Map(); // path -> { promise, permanent }
+  function openPath(filePath, opts = {}) {
+    const preview = !!(opts && opts.preview);
+    const existing = inflightOpens.get(filePath);
+    if (existing) {
+      if (!preview) existing.permanent = true;
+      return existing.promise;
+    }
+    const entry = { permanent: !preview };
+    entry.promise = (async () => {
+      const buf = await _openPath(filePath, opts);
+      if (buf && entry.permanent && buf.preview) { buf.preview = false; renderTabs(); }
+      return buf;
+    })().finally(() => inflightOpens.delete(filePath));
+    inflightOpens.set(filePath, entry);
+    return entry.promise;
+  }
+
+  async function _openPath(filePath, opts = {}) {
     const preview = !!opts.preview;
     if (LUM.nav) LUM.nav.record(); // remember where we were before navigating
     // already open?
@@ -202,7 +230,10 @@ LUM.editor = (function () {
       if (st.exists && st.large) {
         // Route huge files to the streaming viewer instead of a Monaco model.
         await LUM.largefile.openInTab(filePath);
-        return activeBuffer();
+        const lb = activeBuffer();
+        if (lb && preview) lb.preview = true;
+        if (replaceId != null && lb && replaceId !== lb.id) await closeBuffer(replaceId);
+        return lb;
       }
       const { content, mtimeMs } = await window.lumen.readFile(filePath);
       const name = window.lumen.basename(filePath);
@@ -292,6 +323,8 @@ LUM.editor = (function () {
 
     // remember path-backed closes so they can be reopened (Ctrl+Shift+T)
     if (buf.path && !buf.preview) {
+      const ix = closedStack.indexOf(buf.path);
+      if (ix !== -1) closedStack.splice(ix, 1); // dedupe: most-recent wins
       closedStack.push(buf.path);
       if (closedStack.length > 50) closedStack.shift();
     }
@@ -387,6 +420,7 @@ LUM.editor = (function () {
   }
 
   let dragId = null;
+  let lastScrolledId = null; // active tab last scrolled into view (avoid yanking the strip)
   function renderTabs() {
     const bar = document.getElementById('tabbar');
     const curId = panes[activePane] ? panes[activePane].currentId : null;
@@ -408,7 +442,10 @@ LUM.editor = (function () {
       el.addEventListener('mousedown', (e) => {
         if (e.button === 1) { e.preventDefault(); closeBuffer(id); return; }
         if (e.target.classList.contains('tab-close')) return;
-        showBuffer(id);
+        // Don't re-render the strip when the tab is already active — otherwise the
+        // first mousedown of a double-click destroys the node the gesture is on,
+        // breaking dblclick-to-promote and flickering the bar.
+        if (id !== curId) showBuffer(id);
       });
       el.querySelector('.tab-close').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -472,9 +509,14 @@ LUM.editor = (function () {
         bar.scrollLeft += (e.deltaY || 0);
       }, { passive: false });
     }
-    // Keep the active tab visible when tabs overflow.
-    const activeEl = bar.querySelector('.tab.active');
-    if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // Scroll the active tab into view only when it actually changed — otherwise
+    // background re-renders (autosave, pin, edit) would yank the strip back while
+    // the user is scrolling through distant tabs.
+    if (curId !== lastScrolledId) {
+      lastScrolledId = curId;
+      const activeEl = bar.querySelector('.tab.active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     if (LUM.app && LUM.app.saveSessionSoon) LUM.app.saveSessionSoon();
   }
 

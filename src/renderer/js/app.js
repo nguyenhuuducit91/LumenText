@@ -223,7 +223,6 @@ LUM.app = (function () {
     def('file.revert', 'Revert File', 'File', '', () => E.revertActive());
     def('file.convertLF', 'Line Endings: Convert to LF (Unix)', 'File', '', () => E.setEOL('LF'));
     def('file.convertCRLF', 'Line Endings: Convert to CRLF (Windows)', 'File', '', () => E.setEOL('CRLF'));
-    def('file.convertCR', 'Line Endings: Convert to CR (Mac Classic)', 'File', '', () => E.setEOL('CR'));
 
     // Sidebar file operations (also reachable from the tree context menu).
     const S = LUM.sidebar;
@@ -296,6 +295,10 @@ LUM.app = (function () {
     def('edit.titleCase', 'Convert to Title Case', 'Edit', '', () => triggerAction('editor.action.transformToTitlecase'));
 
     def('edit.format', 'Format Document', 'Edit', 'Ctrl+Alt+F', () => triggerAction('editor.action.formatDocument'));
+    // Monaco-backed undo/redo so the Edit menu (mouse) hits the model's undo
+    // stack, not the native webContents undo (which ignores Monaco).
+    def('edit.undo', 'Undo', 'Edit', 'Ctrl+Z', () => triggerAction('undo'));
+    def('edit.redo', 'Redo', 'Edit', 'Ctrl+Y', () => triggerAction('redo'));
     def('edit.fold', 'Fold', 'Edit', 'Ctrl+Shift+[', () => triggerAction('editor.fold'));
     def('edit.unfold', 'Unfold', 'Edit', 'Ctrl+Shift+]', () => triggerAction('editor.unfold'));
     def('edit.foldAll', 'Fold All', 'Edit', '', () => triggerAction('editor.foldAll'));
@@ -443,6 +446,7 @@ LUM.app = (function () {
     def('view.rulers', 'Toggle Rulers (80 / 120)', 'View', '', cycleRulers);
 
     def('help.about', 'About Lumen', 'Help', '', showAbout);
+    def('help.donate', 'Support / Donate', 'Help', '', showAbout);
     def('help.ime', 'Vietnamese Input (fcitx) Help', 'Help', '', showImeHelp);
   }
 
@@ -517,21 +521,37 @@ LUM.app = (function () {
     const cur = ed.getOption(monaco.editor.EditorOption.wordWrap);
     ed.updateOptions({ wordWrap: cur === 'on' ? 'off' : 'on' });
   }
+  // Font size is tracked in-memory and persisted debounced, so holding Ctrl+= /
+  // Ctrl+- doesn't interleave read-modify-write on the settings file and lose steps.
+  let fontSizeCur = null;
+  let fontPersistTimer = null;
   function setFontSize(n) {
-    n = Math.max(6, Math.min(40, n));
-    LUM.settings.set('font_size', n);
+    n = Math.max(6, Math.min(40, Math.round(n)));
+    fontSizeCur = n;
     LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ fontSize: n }));
     toast('Font size: ' + n);
+    clearTimeout(fontPersistTimer);
+    fontPersistTimer = setTimeout(() => LUM.settings.set('font_size', n), 300);
   }
   function bumpFont(delta) {
-    setFontSize((LUM.settings.get('font_size', LUM.settings.DEFAULTS.font_size) || 13) + delta);
+    if (fontSizeCur == null) fontSizeCur = LUM.settings.get('font_size', LUM.settings.DEFAULTS.font_size) || 13;
+    setFontSize(fontSizeCur + delta);
   }
-  // Paste over the selection, then reindent the pasted lines (Sublime behaviour).
+  // Paste over the selection, then reindent the PASTED block (Sublime behaviour).
   async function pasteAndIndent() {
     const ed = LUM.editor.activeEditor();
-    if (!ed) return;
+    const buf = LUM.editor.activeBuffer();
+    if (!ed || !buf || buf.kind !== 'text' || !buf.model) return;
+    const start = ed.getSelection(); // where the paste begins
     const paste = ed.getAction('editor.action.clipboardPasteAction');
-    if (paste) await paste.run();
+    if (!paste) return;
+    await paste.run();
+    // Select from the paste start to the post-paste caret, then reindent that span
+    // (Monaco collapses the selection to a caret after pasting).
+    const end = ed.getPosition();
+    if (start && end) {
+      ed.setSelection(new monaco.Selection(start.startLineNumber, start.startColumn, end.lineNumber, end.column));
+    }
     const reindent = ed.getAction('editor.action.reindentselectedlines');
     if (reindent) await reindent.run();
   }
@@ -667,8 +687,75 @@ LUM.app = (function () {
     return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
+  // About / Donate modal — built once, then shown/hidden. Mirrors the RichNote
+  // dialog: logo + version, feature chips, developer info, and donate QR codes.
+  let aboutEl = null;
+  function buildAboutModal() {
+    const back = document.createElement('div');
+    back.className = 'lum-modal-backdrop';
+    back.innerHTML =
+      '<div class="lum-modal about-modal" role="dialog" aria-label="About Lumen">' +
+        '<button class="lum-modal-close" aria-label="Close">&times;</button>' +
+        '<div class="about-hero">' +
+          '<div class="about-logo"><img src="img/icon.png" alt="Lumen" /></div>' +
+          '<h2 class="about-title">Lumen</h2>' +
+          '<span class="about-ver">v0.1.0</span>' +
+          '<p class="about-tagline">A fast, Sublime-style code editor — Electron + Monaco</p>' +
+        '</div>' +
+        '<div class="about-body">' +
+          '<div class="about-chips">' +
+            '<span class="about-chip">Sublime-style</span>' +
+            '<span class="about-chip">Monaco</span>' +
+            '<span class="about-chip">Multiple cursors</span>' +
+            '<span class="about-chip">Find &amp; Replace</span>' +
+            '<span class="about-chip">Find in Files</span>' +
+            '<span class="about-chip">Large File Mode</span>' +
+            '<span class="about-chip">fcitx VN input</span>' +
+          '</div>' +
+          '<div class="about-section">' +
+            '<h3 class="about-h3">Developer</h3>' +
+            '<div class="about-rows">' +
+              '<div class="about-row">' +
+                '<span class="about-row-ico">👤</span>' +
+                '<span class="about-row-main"><b>Nguyễn Hữu Đức</b><small>Software Developer · VIETIS</small></span>' +
+              '</div>' +
+              '<a class="about-row" href="mailto:nguyenhuuduc.it.91@gmail.com"><span class="about-row-ico">✉️</span><span class="about-row-val">nguyenhuuduc.it.91@gmail.com</span></a>' +
+              '<a class="about-row" href="tel:0964589910"><span class="about-row-ico">📱</span><span class="about-row-val">0964 589 910</span></a>' +
+              '<a class="about-row" href="https://github.com/nguyenhuuducit91/LumenText" target="_blank" rel="noopener noreferrer"><span class="about-row-ico">🔗</span><span class="about-row-val">github.com/nguyenhuuducit91/LumenText</span></a>' +
+            '</div>' +
+          '</div>' +
+          '<div class="about-section about-donate">' +
+            '<h3 class="about-h3">♥ Support the developer</h3>' +
+            '<p class="about-donate-text">If Lumen helps you code faster, a small coffee keeps it improving. Thank you! 🙏</p>' +
+            '<div class="about-qr-row">' +
+              '<figure class="about-qr-item"><img class="about-qr" src="img/qr-code-bank-donate.png" alt="Bank donate QR" onerror="this.closest(\'.about-qr-item\').style.display=\'none\'" /><figcaption class="about-qr-cap">Bank</figcaption></figure>' +
+              '<figure class="about-qr-item"><img class="about-qr" src="img/paypal.png" alt="PayPal donate QR" onerror="this.closest(\'.about-qr-item\').style.display=\'none\'" /><figcaption class="about-qr-cap">PayPal</figcaption></figure>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="about-foot">MIT License · Made with ♥ in Vietnam · © 2026 Nguyễn Hữu Đức</div>' +
+      '</div>';
+    document.body.appendChild(back);
+
+    const close = () => back.classList.remove('open');
+    back.querySelector('.lum-modal-close').addEventListener('click', close);
+    back.addEventListener('mousedown', (e) => { if (e.target === back) close(); });
+    back.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+    // Open mailto:/tel:/https: links in the system browser, never in-window.
+    back.querySelectorAll('a.about-row').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        try { window.lumen.openExternal(a.getAttribute('href')); } catch { /* ignore */ }
+      });
+    });
+    aboutEl = back;
+    return back;
+  }
   function showAbout() {
-    inlinePicker([{ label: 'Lumen v0.1.0 — Electron + Monaco · fcitx inline VN input · Press Enter to close', run: () => {} }], 'About');
+    const back = aboutEl || buildAboutModal();
+    back.classList.add('open');
+    back.setAttribute('tabindex', '-1');
+    back.focus();
   }
   function showImeHelp() {
     const lines = [

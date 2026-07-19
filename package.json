@@ -3,7 +3,7 @@
   "productName": "Lumen",
   "version": "0.1.0",
   "description": "A fast, modern code editor for Ubuntu built with Electron + Monaco, with inline fcitx Vietnamese input support.",
-  "homepage": "https://github.com/lumen-editor/lumen",
+  "homepage": "https://github.com/nguyenhuuducit91/LumenText",
   "author": {
     "name": "Lumen",
     "email": "duc.nguyenhuu@vietis.com.vn"

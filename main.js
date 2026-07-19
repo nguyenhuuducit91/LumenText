@@ -159,12 +159,12 @@ function syntaxSubmenu() {
   return items;
 }
 
-// View / File > Line Endings.
+// View / File > Line Endings. (Monaco models only hold LF or CRLF — classic-Mac
+// CR isn't offered because the buffer can't actually store it.)
 function lineEndingSubmenu() {
   return [
     { label: 'Windows (CRLF)', click: () => send('file.convertCRLF') },
-    { label: 'Unix (LF)', click: () => send('file.convertLF') },
-    { label: 'Mac OS 9 (CR)', click: () => send('file.convertCR') }
+    { label: 'Unix (LF)', click: () => send('file.convertLF') }
   ];
 }
 
@@ -234,8 +234,10 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        // registerAccelerator:false → the shortcut shows in the menu but Monaco keeps
+        // handling the keystroke (native undo/redo/selectAll ignore Monaco's model).
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', registerAccelerator: false, click: () => send('edit.undo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Y', registerAccelerator: false, click: () => send('edit.redo') },
         {
           label: 'Undo Selection',
           submenu: [
@@ -310,7 +312,7 @@ function buildMenu() {
             { label: 'Fold', accelerator: 'CmdOrCtrl+Shift+[', click: () => send('edit.fold') },
             { label: 'Unfold', accelerator: 'CmdOrCtrl+Shift+]', click: () => send('edit.unfold') },
             { label: 'Fold All', click: () => send('edit.foldAll') },
-            { label: 'Unfold All', accelerator: 'CmdOrCtrl+K CmdOrCtrl+0', click: () => send('edit.unfoldAll') },
+            { label: 'Unfold All  (Ctrl+K Ctrl+0)', click: () => send('edit.unfoldAll') },
             { type: 'separator' },
             { label: 'Fold Level 2', click: () => send('edit.foldLevel2') },
             { label: 'Fold Level 3', click: () => send('edit.foldLevel3') },
@@ -355,7 +357,7 @@ function buildMenu() {
         { label: 'Single Selection', click: () => send('sel.single') },
         { label: 'Invert Selection', click: () => send('sel.invert') },
         { type: 'separator' },
-        { role: 'selectAll' },
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', registerAccelerator: false, click: () => send('sel.selectAll') },
         { label: 'Expand Selection', accelerator: 'Shift+Alt+Right', click: () => send('sel.expand') },
         { label: 'Shrink Selection', accelerator: 'Shift+Alt+Left', click: () => send('sel.shrink') },
         { label: 'Expand Selection to Line', accelerator: 'CmdOrCtrl+L', click: () => send('sel.expandToLine') },
@@ -490,8 +492,7 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
-        { label: 'About Lumen', click: () => send('help.about') },
-        { label: 'Vietnamese Input (fcitx) Help', click: () => send('help.ime') }
+        { label: 'About Lumen', click: () => send('help.about') }
       ]
     }
   ];
@@ -830,6 +831,12 @@ ipcMain.handle('fs:delete', async (_e, target) => {
 
 ipcMain.handle('shell:showItem', (_e, target) => {
   shell.showItemInFolder(target);
+  return true;
+});
+
+// Open a mailto:/tel:/https: link in the system default app (never in-window).
+ipcMain.handle('shell:openExternal', (_e, url) => {
+  if (typeof url === 'string' && /^(https?|mailto|tel):/.test(url)) shell.openExternal(url);
   return true;
 });
 

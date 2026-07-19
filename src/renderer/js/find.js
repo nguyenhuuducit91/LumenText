@@ -12,6 +12,7 @@ window.LUM = window.LUM || {};
 // ===========================================================================
 LUM.find = (function () {
   const WORD_SEP = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
+  const MAX_HL = 2000; // cap highlight decorations so a common query stays snappy
 
   const state = {
     query: '', replaceValue: '',
@@ -22,6 +23,7 @@ LUM.find = (function () {
   let visible = false;
   let replaceMode = false;
   let matches = [];          // Range[]
+  let matchObjs = [];        // parallel Monaco FindMatch[] (holds capture groups)
   let current = -1;          // index into matches
   let invalidRegex = false;
   let scopeRanges = null;    // Range[] limiting the search (in-selection)
@@ -45,7 +47,6 @@ LUM.find = (function () {
     countEl = $('sfind-count');
     if (!el) return;
 
-    // Toggle buttons (data-flag).
     el.querySelectorAll('.sfind-tg').forEach((btn) => {
       btn.addEventListener('click', () => toggleFlag(btn.dataset.flag));
     });
@@ -108,27 +109,36 @@ LUM.find = (function () {
   }
 
   // ---- search -------------------------------------------------------------
-  function recompute(keepIndex) {
+  // Fill `matches`/`matchObjs` for the current model, WITHOUT moving anything.
+  function computeMatches() {
     const m = model();
-    matches = [];
-    invalidRegex = false;
-    if (!m || !state.query) { current = -1; render(); paint(); return; }
+    matches = []; matchObjs = []; invalidRegex = false;
+    if (!m || !state.query) return;
+    if (state.regex) {
+      // Pre-validate so a malformed pattern reads "Invalid regex", not "No results".
+      try { new RegExp(state.query); } catch { invalidRegex = true; return; }
+    }
     const scope = (state.inSelection && scopeRanges) ? scopeRanges : null;
     const wordSep = state.wholeWord ? WORD_SEP : null;
-    try {
-      const found = m.findMatches(state.query, scope, state.regex, state.caseSensitive, wordSep, false, 100000);
-      matches = found.map((f) => f.range);
-    } catch (e) {
-      invalidRegex = true; current = -1; render(); paint(); return;
-    }
-    if (!matches.length) { current = -1; render(); paint(); return; }
-    if (keepIndex && current >= 0) {
-      current = Math.min(current, matches.length - 1);
-    } else {
-      const from = anchorPos || (editor() && editor().getPosition());
-      current = from ? firstAtOrAfter(from) : 0;
-    }
-    revealCurrent(false);
+    let found;
+    try { found = m.findMatches(state.query, scope, state.regex, state.caseSensitive, wordSep, true, 100000); }
+    catch { invalidRegex = true; return; }
+    matchObjs = found;
+    matches = found.map((f) => f.range);
+  }
+
+  function positionCurrent(keepIndex) {
+    if (!matches.length) { current = -1; return; }
+    if (keepIndex && current >= 0) { current = Math.min(current, matches.length - 1); return; }
+    const from = anchorPos || (editor() && editor().getPosition());
+    current = from ? firstAtOrAfter(from) : 0;
+  }
+
+  // Full incremental pass: recompute, reposition, reveal the current match.
+  function recompute(keepIndex) {
+    computeMatches();
+    positionCurrent(keepIndex);
+    if (matches.length) revealCurrent(false);
     render(); paint();
   }
 
@@ -147,7 +157,7 @@ LUM.find = (function () {
   // Find Next lands ON the next match (never skipping one), like Sublime.
   function move(dir) {
     if (!state.query) return;
-    if (!matches.length) { recompute(false); if (!matches.length) return; }
+    if (!matches.length) { computeMatches(); if (!matches.length) { render(); paint(); return; } }
     const ed = editor();
     const sel = ed && ed.getSelection();
     let idx = -1;
@@ -172,7 +182,7 @@ LUM.find = (function () {
   }
 
   function findAll() {
-    if (!matches.length) return;
+    if (!matches.length) { computeMatches(); if (!matches.length) return; }
     const ed = editor();
     if (!ed) return;
     ed.setSelections(matches.map((r) => new monaco.Selection(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn)));
@@ -190,19 +200,24 @@ LUM.find = (function () {
   }
 
   // ---- replace ------------------------------------------------------------
-  function replacementFor(range) {
+  // Expand $1..$9 / $& / $$ against the capture groups Monaco returned.
+  function expandRepl(tpl, groups) {
+    return tpl.replace(/\$(\$|&|\d{1,2})/g, (m, p) => {
+      if (p === '$') return '$';
+      if (p === '&') return groups[0] != null ? groups[0] : '';
+      const n = +p;
+      return groups[n] != null ? groups[n] : '';
+    });
+  }
+  function replacementForIndex(i) {
     const m = model();
+    const range = matches[i];
     const matched = m.getValueInRange(range);
-    let out;
     if (state.regex) {
-      const flags = 'u' + (state.caseSensitive ? '' : 'i');
-      try { out = matched.replace(new RegExp(state.query, flags), state.replaceValue); }
-      catch { out = state.replaceValue; }
-    } else {
-      out = state.replaceValue;
+      const groups = (matchObjs[i] && matchObjs[i].matches) ? matchObjs[i].matches : [matched];
+      return expandRepl(state.replaceValue, groups);
     }
-    if (state.preserveCase && !state.regex) out = matchCase(matched, out);
-    return out;
+    return state.preserveCase ? matchCase(matched, state.replaceValue) : state.replaceValue;
   }
   // Mirror the casing pattern of `sample` onto `repl` (ALL CAPS / lower / Title).
   function matchCase(sample, repl) {
@@ -213,21 +228,20 @@ LUM.find = (function () {
   }
 
   function replaceOne() {
-    const ed = editor();
-    if (!ed || current < 0 || !matches[current]) { move(1); return; }
-    const r = matches[current];
-    ed.executeEdits('sfind', [{ range: r, text: replacementFor(r), forceMoveMarkers: true }]);
-    // Re-search and select the next match at/after where we just replaced.
-    anchorPos = ed.getPosition();
+    const ed = editor(), m = model();
+    if (!ed || !m || current < 0 || !matches[current]) { move(1); return; }
+    const text = replacementForIndex(current);
+    ed.executeEdits('sfind', [{ range: matches[current], text, forceMoveMarkers: true }]);
+    anchorPos = ed.getPosition(); // select the next match at/after the edit
     recompute(false);
   }
 
   function replaceAll() {
-    const ed = editor();
-    if (!ed || !matches.length) return;
-    const edits = matches.map((r) => ({ range: r, text: replacementFor(r), forceMoveMarkers: true }));
-    ed.executeEdits('sfind', edits);
+    const ed = editor(), m = model();
+    if (!ed || !m || !matches.length) return;
+    const edits = matches.map((r, i) => ({ range: r, text: replacementForIndex(i), forceMoveMarkers: true }));
     const n = edits.length;
+    ed.executeEdits('sfind', edits);
     recompute(false);
     LUM.app && LUM.app.toast('Replaced ' + n + ' occurrence' + (n === 1 ? '' : 's'));
   }
@@ -249,10 +263,11 @@ LUM.find = (function () {
     if (!visible || !matches.length) { col.set([]); return; }
     const out = [];
     if (state.highlight) {
-      matches.forEach((r, i) => {
-        if (i === current) return;
-        out.push({ range: r, options: { className: 'sfind-hl', stickiness: 1 } });
-      });
+      const lim = Math.min(matches.length, MAX_HL);
+      for (let i = 0; i < lim; i++) {
+        if (i === current) continue;
+        out.push({ range: matches[i], options: { className: 'sfind-hl', stickiness: 1 } });
+      }
     }
     if (current >= 0 && matches[current]) {
       out.push({ range: matches[current], options: { className: 'sfind-hl-current', stickiness: 1 } });
@@ -293,18 +308,17 @@ LUM.find = (function () {
     el.classList.remove('hidden');
     visible = true;
 
-    const ed = editor();
+    const ed = editor(), m = model();
     anchorPos = ed ? ed.getPosition() : null;
 
-    // Seed from the current selection (single line = query, multiline = scope).
-    if (ed) {
+    // Each open re-derives scope: only a multi-line selection turns on
+    // "in selection"; a single-line selection becomes the query (never scope).
+    state.inSelection = false; scopeRanges = null;
+    if (ed && m) {
       const sel = ed.getSelection();
       if (sel && !sel.isEmpty()) {
-        if (sel.startLineNumber === sel.endLineNumber) {
-          state.query = ed.getModel().getValueInRange(sel);
-        } else {
-          state.inSelection = true;
-        }
+        if (sel.startLineNumber === sel.endLineNumber) state.query = m.getValueInRange(sel);
+        else state.inSelection = true;
       }
     }
     captureScope();
@@ -331,18 +345,44 @@ LUM.find = (function () {
 
   function isOpen() { return visible; }
 
+  // Re-sync to the active buffer's model (called when the user switches tabs
+  // while the bar is open) — recompute count + highlights without hijacking the
+  // editor selection/scroll.
+  function refresh() {
+    if (!visible) return;
+    const ed = editor();
+    anchorPos = ed ? ed.getPosition() : null;
+    captureScope();
+    computeMatches();
+    positionCurrent(false);
+    render(); paint();
+  }
+
   // F3 / Shift+F3 — find next/prev even when the bar is closed, using last query.
-  function next() { if (!visible && state.query) { recompute(false); } move(1); if (!visible) revealCurrent(true); }
-  function prev() { if (!visible && state.query) { recompute(false); } move(-1); if (!visible) revealCurrent(true); }
+  // When closed we compute silently (no reveal) so move() navigates from the
+  // live cursor and lands on the very next match instead of skipping it.
+  function next() {
+    if (!state.query) return;
+    if (!visible) computeMatches();
+    move(1);
+    if (!visible) { render(); paint(); }
+  }
+  function prev() {
+    if (!state.query) return;
+    if (!visible) computeMatches();
+    move(-1);
+    if (!visible) { render(); paint(); }
+  }
 
   // Use the editor's selection as the search term and jump to the next match.
   function useSelection() {
-    const ed = editor();
-    if (!ed) return;
+    const ed = editor(), m = model();
+    if (!ed || !m) return;
     const sel = ed.getSelection();
-    if (sel && !sel.isEmpty()) state.query = ed.getModel().getValueInRange(sel);
-    if (!visible) open(false); else { input.value = state.query; recompute(false); }
+    if (sel && !sel.isEmpty()) state.query = m.getValueInRange(sel);
+    if (!visible) open(false);
+    else { input.value = state.query; recompute(false); }
   }
 
-  return { init, open, close, isOpen, next, prev, useSelection, toggleReplace: () => open(true) };
+  return { init, open, close, isOpen, refresh, next, prev, useSelection, toggleReplace: () => open(true) };
 })();
