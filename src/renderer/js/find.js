@@ -175,19 +175,53 @@ LUM.find = (function () {
       }
       if (idx === -1) idx = state.wrap ? matches.length - 1 : -1;
     }
-    if (idx === -1) return;
+    if (idx === -1) {
+      // Wrap is off and there is no further match — tell the user, like Sublime.
+      if (countEl) {
+        countEl.textContent = dir > 0 ? 'Reached end of file' : 'Reached start of file';
+      }
+      return;
+    }
     current = idx;
     revealCurrent(true);
     render(); paint();
   }
 
+  const MAX_CURSORS = 10000; // guard: tens of thousands of carets can freeze Monaco
   function findAll() {
     if (!matches.length) { computeMatches(); if (!matches.length) return; }
     const ed = editor();
     if (!ed) return;
-    ed.setSelections(matches.map((r) => new monaco.Selection(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn)));
-    ed.revealRangeInCenterIfOutsideViewport(matches[matches.length - 1]);
+    let sel = matches;
+    if (sel.length > MAX_CURSORS) {
+      sel = sel.slice(0, MAX_CURSORS);
+      LUM.app && LUM.app.toast('Find All: capped at ' + MAX_CURSORS + ' cursors (of ' + matches.length + ')');
+    }
+    ed.setSelections(sel.map((r) => new monaco.Selection(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn)));
+    ed.revealRangeInCenterIfOutsideViewport(sel[sel.length - 1]);
     ed.focus();
+  }
+
+  // Find Under (Ctrl+F3 / Ctrl+Shift+F3): search the word under the caret (or the
+  // current selection) and jump to the next/previous occurrence, without opening
+  // the bar. Seeds the query so subsequent F3 keeps going.
+  function findUnder(dir) {
+    const ed = editor(), m = model();
+    if (!ed || !m) return;
+    const sel = ed.getSelection();
+    if (sel && !sel.isEmpty()) {
+      state.query = m.getValueInRange(sel);
+    } else {
+      const pos = ed.getPosition();
+      const w = pos && m.getWordAtPosition(pos);
+      if (!w) return;
+      state.query = w.word;
+      ed.setSelection(new monaco.Selection(pos.lineNumber, w.startColumn, pos.lineNumber, w.endColumn));
+    }
+    if (input) input.value = state.query;
+    computeMatches();
+    move(dir < 0 ? -1 : 1);
+    if (!visible) { render(); paint(); }
   }
 
   function revealCurrent(center) {
@@ -200,31 +234,18 @@ LUM.find = (function () {
   }
 
   // ---- replace ------------------------------------------------------------
-  // Expand $1..$9 / $& / $$ against the capture groups Monaco returned.
-  function expandRepl(tpl, groups) {
-    return tpl.replace(/\$(\$|&|\d{1,2})/g, (m, p) => {
-      if (p === '$') return '$';
-      if (p === '&') return groups[0] != null ? groups[0] : '';
-      const n = +p;
-      return groups[n] != null ? groups[n] : '';
-    });
-  }
+  // Escape interpretation (\n \t …), $1/\1 group expansion and preserve-case
+  // live in the pure, unit-tested src/shared/replace.js.
   function replacementForIndex(i) {
     const m = model();
     const range = matches[i];
     const matched = m.getValueInRange(range);
     if (state.regex) {
       const groups = (matchObjs[i] && matchObjs[i].matches) ? matchObjs[i].matches : [matched];
-      return expandRepl(state.replaceValue, groups);
+      return LUM.replace.expandRepl(state.replaceValue, groups);
     }
-    return state.preserveCase ? matchCase(matched, state.replaceValue) : state.replaceValue;
-  }
-  // Mirror the casing pattern of `sample` onto `repl` (ALL CAPS / lower / Title).
-  function matchCase(sample, repl) {
-    if (sample === sample.toUpperCase() && sample !== sample.toLowerCase()) return repl.toUpperCase();
-    if (sample === sample.toLowerCase()) return repl.toLowerCase();
-    if (sample[0] === sample[0].toUpperCase()) return repl.charAt(0).toUpperCase() + repl.slice(1);
-    return repl;
+    const repl = LUM.replace.unescape(state.replaceValue);
+    return state.preserveCase ? LUM.replace.matchCase(matched, repl) : repl;
   }
 
   function replaceOne() {
@@ -337,6 +358,7 @@ LUM.find = (function () {
     el.classList.add('hidden');
     visible = false;
     anchorPos = null; // so a later F3 searches from the live cursor
+    state.inSelection = false; scopeRanges = null; // don't confine a later F3 to a stale selection
     if (decos) decos.set([]);
     setTimeout(() => LUM.editor.layout(), 0);
     const ed = editor();
@@ -384,5 +406,5 @@ LUM.find = (function () {
     else { input.value = state.query; recompute(false); }
   }
 
-  return { init, open, close, isOpen, refresh, next, prev, useSelection, toggleReplace: () => open(true) };
+  return { init, open, close, isOpen, refresh, next, prev, useSelection, findUnder, toggleReplace: () => open(true) };
 })();

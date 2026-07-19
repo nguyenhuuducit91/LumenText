@@ -15,29 +15,24 @@ LUM.palette = (function () {
   let filtered = [];
   let active = 0;
   let fileIndex = null;    // cached walk result
+  let curSuffix = null;    // parsed `:line`/`@symbol`/`#word` suffix for the pending choice
+  let openSeq = 0;         // generation token: a newer open() cancels a slower one
 
-  // ---- fuzzy matcher ------------------------------------------------------
-  // Returns {score, positions} or null. Higher score = better.
-  function fuzzy(query, text) {
+  // ---- fuzzy matcher (pure logic in src/shared/fuzzy.js) ------------------
+  const fuzzy = (q, t) => LUM.fuzzy.fuzzy(q, t);
+
+  // Score a candidate against its label + basename (via scorePath) and its
+  // category/sub text, so `cli` ranks `client/cli.js` above `client/models.js`
+  // and command categories are searchable. Positions are relative to `label`.
+  function scoreItem(query, it) {
     if (!query) return { score: 0, positions: [] };
-    const q = query.toLowerCase();
-    const t = text.toLowerCase();
-    let qi = 0, ti = 0, score = 0, prevMatch = -2;
-    const positions = [];
-    while (qi < q.length && ti < t.length) {
-      if (q[qi] === t[ti]) {
-        positions.push(ti);
-        score += 1;
-        if (ti === prevMatch + 1) score += 5;                    // consecutive
-        if (ti === 0 || /[\/_\-. ]/.test(t[ti - 1])) score += 8; // word start
-        prevMatch = ti;
-        qi++;
-      }
-      ti++;
+    let best = LUM.fuzzy.scorePath(query, it.label);
+    // Category / sub text (e.g. "Git", "Ln 42") — searchable but not highlighted.
+    if (!best && it.sub) {
+      const sres = fuzzy(query, it.sub);
+      if (sres) best = { score: sres.score - 4, positions: [] };
     }
-    if (qi < q.length) return null;
-    score -= (t.length - positions.length) * 0.02; // slight length penalty
-    return { score, positions };
+    return best;
   }
 
   function highlight(text, positions) {
@@ -57,10 +52,12 @@ LUM.palette = (function () {
   // ---- open/close ---------------------------------------------------------
   function open(newMode, prefill = '') {
     mode = newMode;
+    const gen = ++openSeq;
     overlay().classList.remove('hidden');
     const inp = input();
     inp.value = prefill;
-    prepareItems().then(() => {
+    prepareItems(gen).then(() => {
+      if (gen !== openSeq) return; // a newer open() replaced this one
       refilter();
       inp.focus();
       inp.select();
@@ -70,6 +67,7 @@ LUM.palette = (function () {
   function close() {
     overlay().classList.add('hidden');
     mode = null;
+    curSuffix = null;
     const ed = LUM.editor.activeEditor();
     if (ed) ed.focus();
   }
@@ -78,9 +76,10 @@ LUM.palette = (function () {
     return !overlay().classList.contains('hidden');
   }
 
-  async function prepareItems() {
+  async function prepareItems(gen) {
+    let built = [];
     if (mode === 'command') {
-      items = LUM.commands.all().map((c) => ({
+      built = LUM.commands.all().map((c) => ({
         label: c.title,
         sub: c.category || '',
         key: c.keybind || '',
@@ -88,18 +87,22 @@ LUM.palette = (function () {
       }));
     } else if (mode === 'file') {
       const idx = await getFileIndex();
-      items = idx.map((f) => ({
+      built = idx.map((f) => ({
         label: f.rel,
         sub: '',
         run: () => LUM.editor.openPath(f.path)
       }));
     } else if (mode === 'symbol') {
-      items = collectSymbols();
+      built = collectSymbols();
     } else if (mode === 'word') {
-      items = collectLines();
+      built = collectLines();
     } else if (mode === 'line') {
-      items = []; // handled specially
+      built = []; // handled specially
     }
+    // Only publish if a newer open() hasn't superseded this one (a slow file
+    // walk must not overwrite the command list the user switched to).
+    if (gen != null && gen !== openSeq) return;
+    items = built;
   }
 
   // Every non-blank line of the current file, for Goto Anything's `#` search.
@@ -146,6 +149,12 @@ LUM.palette = (function () {
     fileIndex = null;
   }
 
+  // Control-flow / non-declaration words that look like `name(...) {` but are not
+  // symbols. Keeps Goto Symbol from listing `if`, `for`, `while`, `switch`, …
+  const NOT_SYMBOL = new Set(['if', 'for', 'while', 'switch', 'catch', 'else', 'do',
+    'try', 'return', 'function', 'class', 'const', 'let', 'var', 'async', 'await',
+    'with', 'case', 'new', 'typeof', 'delete', 'void', 'in', 'of']);
+
   function collectSymbols() {
     const ed = LUM.editor.activeEditor();
     const model = ed && ed.getModel();
@@ -153,12 +162,16 @@ LUM.palette = (function () {
     // Lightweight symbol scan: functions, classes, headings, etc.
     const out = [];
     const lines = model.getLinesContent();
-    const re = /(?:^|\s)(?:function|class|def|interface|type|const|let|var|public|private|export)\s+([A-Za-z_$][\w$]*)|^\s*([A-Za-z_$][\w$]*)\s*(?:\([^)]*\))?\s*\{|^(#{1,6})\s+(.+)$/;
+    // 1) declaration keyword + name; 2) `name(args) {` method-style; 3) markdown heading
+    const re = /(?:^|\s)(?:export\s+)?(?:default\s+)?(?:function\*?|class|def|interface|type|struct|enum|func|fn)\s+([A-Za-z_$][\w$]*)|^\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$|^(#{1,6})\s+(.+)$/;
     lines.forEach((line, i) => {
+      const trimmed = line.trim();
+      // Skip obvious comment lines to avoid indexing commented-out code.
+      if (/^(\/\/|\*|#(?!#*\s))/.test(trimmed) && !/^#{1,6}\s/.test(trimmed)) return;
       const m = line.match(re);
       if (m) {
         const name = m[1] || m[2] || (m[4] ? m[4].trim() : null);
-        if (name && name.length > 1) {
+        if (name && name.length > 1 && !NOT_SYMBOL.has(name)) {
           out.push({
             label: name,
             sub: 'Ln ' + (i + 1),
@@ -198,11 +211,18 @@ LUM.palette = (function () {
       else if (hash >= 0) { query = raw.slice(0, hash); suffix = { type: 'word', val: raw.slice(hash + 1) }; }
       else if (colon >= 0) { query = raw.slice(0, colon); suffix = { type: 'line', val: raw.slice(colon + 1) }; }
     }
+    curSuffix = suffix;
+
+    // A bare suffix with no file part (":40", "@sym", "#word") targets the
+    // CURRENT file directly — Sublime jumps within the open file, not a random one.
+    if (suffix && !query.trim()) {
+      renderSuffixOnCurrent(suffix);
+      return;
+    }
 
     const scored = [];
     for (const it of items) {
-      const hay = it.label + (it.sub ? ' ' + it.sub : '');
-      const res = fuzzy(query.trim(), it.label);
+      const res = scoreItem(query.trim(), it);
       if (res || !query.trim()) {
         scored.push({ it, score: res ? res.score : 0, positions: res ? res.positions : [] });
       }
@@ -210,34 +230,55 @@ LUM.palette = (function () {
     scored.sort((a, b) => b.score - a.score);
     filtered = scored.slice(0, 500);
     active = 0;
-    renderList(suffix);
+    renderList();
+  }
+
+  // Bare "@"/"#"/":" in file mode → operate on the current file/editor.
+  function renderSuffixOnCurrent(suffix) {
+    if (suffix.type === 'line') { renderLineMode(suffix.val); return; }
+    const src = suffix.type === 'symbol' ? collectSymbols() : collectLines();
+    const q = (suffix.val || '').trim();
+    const scored = [];
+    for (const it of src) {
+      const res = q ? fuzzy(q, it.label) : { score: 0, positions: [] };
+      if (res) scored.push({ it, score: res.score, positions: res.positions });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    curSuffix = null; // items already run gotoLine directly
+    filtered = scored.slice(0, 500);
+    active = 0;
+    renderList();
   }
 
   function renderLineMode(raw) {
-    const n = parseInt(raw.replace(/[^0-9]/g, ''), 10);
+    // Accept "120" and "120:8" (line:col); ignore any other characters.
+    const mm = String(raw).match(/(\d+)(?:\s*[:,]\s*(\d+))?/);
+    const n = mm ? parseInt(mm[1], 10) : NaN;
+    const col = mm && mm[2] ? parseInt(mm[2], 10) : 1;
     const model = LUM.editor.activeEditor() && LUM.editor.activeEditor().getModel();
     const max = model ? model.getLineCount() : 1;
+    const target = isNaN(n) ? NaN : Math.max(1, Math.min(n, max));
     listEl().innerHTML = `<li class="palette-item active"><span class="pi-main">Go to line ${
-      isNaN(n) ? '…' : Math.min(n, max)
-    } (of ${max})</span></li>`;
+      isNaN(target) ? '…' : target
+    }${col > 1 ? ', col ' + col : ''} (of ${max})</span></li>`;
     filtered = [{
-      it: { run: () => { if (!isNaN(n)) gotoLine(Math.min(n, max)); } },
+      it: { run: () => { if (!isNaN(target)) gotoLine(target, col); } },
       positions: []
     }];
     active = 0;
   }
 
-  function renderList(suffix) {
+  function renderList() {
     const ul = listEl();
     ul.innerHTML = '';
     filtered.forEach((row, i) => {
       const li = document.createElement('li');
       li.className = 'palette-item' + (i === active ? ' active' : '');
-      const main = highlight(row.it.label, row.positions);
+      const main = highlight(row.it.label || '', row.positions);
       li.innerHTML =
         `<span class="pi-main">${main}${row.it.sub ? ` <span class="pi-sub">${escapeHtml(row.it.sub)}</span>` : ''}</span>` +
         (row.it.key ? `<span class="pi-key">${escapeHtml(row.it.key)}</span>` : '');
-      li.addEventListener('click', () => choose(i, suffix));
+      li.addEventListener('click', () => choose(i));
       ul.appendChild(li);
     });
   }
@@ -250,19 +291,20 @@ LUM.palette = (function () {
     if (el) el.scrollIntoView({ block: 'nearest' });
   }
 
-  async function choose(i, suffix) {
+  async function choose(i) {
     if (i != null) active = i;
     const row = filtered[active];
     if (!row) { close(); return; }
+    const suffix = curSuffix; // captured before close() clears state
     const run = row.it.run;
     close();
     if (run) await run();
-    // apply :line / @symbol suffix after opening the file
+    // apply :line / @symbol / #word suffix after opening the chosen file
     if (suffix) {
       setTimeout(() => {
         if (suffix.type === 'line') {
-          const n = parseInt(suffix.val, 10);
-          if (!isNaN(n)) gotoLine(n);
+          const mm = String(suffix.val).match(/(\d+)(?:\s*[:,]\s*(\d+))?/);
+          if (mm) gotoLine(Math.max(1, parseInt(mm[1], 10)), mm[2] ? parseInt(mm[2], 10) : 1);
         } else if (suffix.type === 'symbol') {
           open('symbol', suffix.val);
         } else if (suffix.type === 'word') {

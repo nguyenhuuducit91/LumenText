@@ -139,10 +139,54 @@ LUM.editor = (function () {
     return buf;
   }
 
+  // ---- tab MRU (Ctrl+Tab) -------------------------------------------------
+  const mru = [];              // buffer ids, most-recently-active first
+  let cyclingMru = false;      // suppress reshuffling while walking the MRU
+  let mruTimer = null;
+  function touchMru(id) {
+    if (cyclingMru || id == null) return;
+    const i = mru.indexOf(id);
+    if (i >= 0) mru.splice(i, 1);
+    mru.unshift(id);
+  }
+  function mruCycle(dir) {
+    const live = mru.filter((id) => buffers.has(id));
+    mru.length = 0; mru.push(...live);
+    if (mru.length < 2) return;
+    cyclingMru = true;
+    const cur = panes[activePane] ? panes[activePane].currentId : mru[0];
+    let idx = mru.indexOf(cur);
+    if (idx < 0) idx = 0;
+    idx = (idx + (dir < 0 ? -1 : 1) + mru.length) % mru.length;
+    showBuffer(mru[idx]);
+    clearTimeout(mruTimer);
+    // Commit the landing tab to the front of the MRU shortly after cycling stops.
+    mruTimer = setTimeout(() => {
+      cyclingMru = false;
+      touchMru(panes[activePane] ? panes[activePane].currentId : null);
+    }, 700);
+  }
+  // Positional next/prev tab (Ctrl+PageDown / Ctrl+PageUp).
+  function stepTab(dir) {
+    if (order.length < 2) return;
+    const cur = panes[activePane] ? panes[activePane].currentId : order[0];
+    let i = order.indexOf(cur);
+    if (i < 0) i = 0;
+    i = (i + (dir < 0 ? -1 : 1) + order.length) % order.length;
+    showBuffer(order[i]);
+  }
+  // Select a tab by 1-based index; index 9 selects the LAST tab (Sublime Alt+9).
+  function selectTabByIndex(n) {
+    if (!order.length) return;
+    const id = n >= 9 ? order[order.length - 1] : order[Math.min(n, order.length) - 1];
+    if (id != null) showBuffer(id);
+  }
+
   function showBuffer(id, paneIdx = activePane) {
     const pane = panes[paneIdx];
     const buf = buffers.get(id);
     if (!pane || !buf) return;
+    if (paneIdx === activePane) touchMru(id);
     // save current view state (text buffers only)
     if (pane.currentId != null && pane.currentId !== id) {
       const prev = buffers.get(pane.currentId);
@@ -337,6 +381,8 @@ LUM.editor = (function () {
       LUM.largefile.hide();
       window.lumen.lfClose(buf.lf.id);
     } else if (buf.model) {
+      if (LUM.lsp && LUM.lsp.onClose) LUM.lsp.onClose(buf); // notify LSP before disposal
+      if (LUM.bookmarks && LUM.bookmarks.dispose) LUM.bookmarks.dispose(id);
       buf.model.dispose();
     }
     buffers.delete(id);
@@ -680,6 +726,7 @@ LUM.editor = (function () {
     applyPathChange, markPathDeleted,
     showBuffer, makeLargeBuffer, renderTabs, updateStatus, detectLanguage, setEOL,
     setLanguage, setTabWidth, toggleInsertSpaces, revertActive, reopenClosed,
-    setLayout, layout, setTheme, languageLabel
+    setLayout, layout, setTheme, languageLabel,
+    mruCycle, stepTab, selectTabByIndex
   };
 })();

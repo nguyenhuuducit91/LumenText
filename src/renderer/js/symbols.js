@@ -9,53 +9,69 @@ window.LUM = window.LUM || {};
 LUM.symbols = (function () {
   let index = null;          // [{ name, kind, path, rel, line }]
   let building = null;
+  let gen = 0;               // bumped by invalidate() to cancel an in-flight build
 
   const CODE_EXT = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.go', '.rs', '.py',
     '.java', '.c', '.h', '.cpp', '.hpp', '.cc', '.rb', '.php', '.cs', '.kt', '.swift', '.lua']);
 
-  // capture: def/class/function/interface/type/struct/enum/const NAME
-  const RE = /(?:^|\s)(?:export\s+)?(?:default\s+)?(function\*?|class|interface|type|struct|enum|def|func|fn|const|let|var|public|private|protected|static|async)\s+([A-Za-z_$][\w$]*)/;
+  // capture: [modifiers…] DECLARATOR NAME — modifiers (export/async/static/…) may
+  // precede the real declarator keyword, which is what we record as the "kind".
+  // Prevents `async function foo` capturing kind=async/name=function.
+  const RE = /(?:^|\s)(?:(?:export|default|public|private|protected|static|async|final|abstract)\s+)*(function\*?|class|interface|type|struct|enum|def|func|fn|trait|impl|const|let|var)\s+([A-Za-z_$][\w$]*)/;
   const MD_RE = /^(#{1,6})\s+(.+?)\s*$/;
+  const COMMENT_RE = /^\s*(\/\/|\*|\/\*|#(?!!))/;
 
-  function invalidate() { index = null; }
+  function invalidate() { index = null; gen++; } // cancels any in-flight build
 
   async function build() {
-    const root = LUM.sidebar.root;
-    if (!root) return [];
+    const roots = LUM.sidebar.roots;
+    if (!roots.length) return [];
     if (index) return index;
     if (building) return building;
+    const myGen = gen;
+    const sep = window.lumen.sep;
+    const multi = roots.length > 1;
     building = (async () => {
-      const files = await window.lumen.walk(root, 8000);
       const out = [];
-      let scanned = 0;
-      for (const f of files) {
-        const ext = window.lumen.extname(f.name).toLowerCase();
-        const isMd = ext === '.md' || ext === '.markdown';
-        if (!CODE_EXT.has(ext) && !isMd) continue;
-        let content;
-        try {
-          const st = await window.lumen.stat(f.path);
-          if (!st.exists || st.size > 2 * 1024 * 1024) continue;
-          content = (await window.lumen.readFile(f.path)).content;
-        } catch { continue; }
-        scanned++;
-        const rel = f.path.startsWith(root) ? f.path.slice(root.length + 1) : f.path;
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.length > 400) continue;
-          if (isMd) {
-            const m = line.match(MD_RE);
-            if (m) out.push({ name: m[2].trim(), kind: 'heading', path: f.path, rel, line: i + 1 });
-            continue;
+      const seen = new Set();
+      outer:
+      for (const root of roots) {
+        const prefix = multi ? window.lumen.basename(root) + '/' : '';
+        const files = await window.lumen.walk(root, 8000);
+        if (myGen !== gen) return index || []; // invalidated mid-build
+        for (const f of files) {
+          if (seen.has(f.path)) continue;
+          seen.add(f.path);
+          const ext = window.lumen.extname(f.name).toLowerCase();
+          const isMd = ext === '.md' || ext === '.markdown';
+          if (!CODE_EXT.has(ext) && !isMd) continue;
+          let content;
+          try {
+            const st = await window.lumen.stat(f.path);
+            if (!st.exists || st.size > 2 * 1024 * 1024) continue;
+            content = (await window.lumen.readFile(f.path)).content;
+          } catch { continue; }
+          if (myGen !== gen) return index || [];
+          const rel = prefix + (f.path.startsWith(root + sep) ? f.path.slice(root.length + 1) : f.path);
+          const lines = content.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.length > 400) continue;
+            if (isMd) {
+              const m = line.match(MD_RE);
+              if (m) out.push({ name: m[2].trim(), kind: 'heading', path: f.path, rel, line: i + 1 });
+              continue;
+            }
+            if (COMMENT_RE.test(line)) continue; // skip commented-out declarations
+            const m = line.match(RE);
+            if (m && m[2] && m[2].length > 1) out.push({ name: m[2], kind: m[1], path: f.path, rel, line: i + 1 });
           }
-          const m = line.match(RE);
-          if (m && m[2] && m[2].length > 1) out.push({ name: m[2], kind: m[1], path: f.path, rel, line: i + 1 });
+          if (out.length > 60000) break outer;
         }
-        if (out.length > 60000) break;
       }
-      index = out;
       building = null;
+      if (myGen !== gen) return index || []; // don't cache a stale build
+      index = out;
       return out;
     })();
     return building;

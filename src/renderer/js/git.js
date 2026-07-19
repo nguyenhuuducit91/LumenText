@@ -12,6 +12,7 @@ LUM.git = (function () {
   let branchName = '';
   const headCache = new Map();   // absPath -> HEAD content (string) or null
   const decoState = new WeakMap(); // editor -> decoration ids
+  const hunkState = new WeakMap(); // editor -> [{kind, bStart, bEnd, head:[]}]
   let diffTimer = null;
 
   // ---- repo lifecycle -----------------------------------------------------
@@ -90,48 +91,9 @@ LUM.git = (function () {
   // ---- gutter diff (LCS line diff vs HEAD) --------------------------------
   const MAX_DIFF_LINES = 4000;
 
-  function lineDiff(aLines, bLines) {
-    const n = aLines.length, m = bLines.length;
-    const added = new Set(), modified = new Set(), deleted = new Set();
-    if (n > MAX_DIFF_LINES || m > MAX_DIFF_LINES) return { added, modified, deleted, skipped: true };
-
-    // LCS length table
-    const dp = [];
-    for (let i = 0; i <= n; i++) dp.push(new Uint16Array(m + 1));
-    for (let i = n - 1; i >= 0; i--) {
-      for (let j = m - 1; j >= 0; j--) {
-        dp[i][j] = aLines[i] === bLines[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-    // backtrack into an op list
-    const ops = [];
-    let i = 0, j = 0;
-    while (i < n && j < m) {
-      if (aLines[i] === bLines[j]) { ops.push('eq'); i++; j++; }
-      else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push('del'); i++; }
-      else { ops.push('ins'); j++; }
-    }
-    while (i < n) { ops.push('del'); i++; }
-    while (j < m) { ops.push('ins'); j++; }
-
-    // map ops to current-buffer (b) line markers
-    let bj = 0, k = 0;
-    while (k < ops.length) {
-      if (ops[k] === 'eq') { bj++; k++; continue; }
-      let dels = 0; const ins = [];
-      while (k < ops.length && ops[k] !== 'eq') {
-        if (ops[k] === 'del') dels++;
-        else { ins.push(bj); bj++; }
-        k++;
-      }
-      if (ins.length && dels) ins.forEach((x) => modified.add(x + 1));
-      else if (ins.length) ins.forEach((x) => added.add(x + 1));
-      else if (dels) deleted.add(Math.max(1, Math.min(bj + 1, m)) || 1);
-    }
-    return { added, modified, deleted, skipped: false };
-  }
+  // LCS line diff → contiguous hunks (see src/shared/linediff.js — pure + tested).
+  function diffHunks(aLines, bLines) { return LUM.linediff.diffHunks(aLines, bLines, MAX_DIFF_LINES); }
+  const hunkAnchor = LUM.linediff.hunkAnchor;
 
   function scheduleDiff() {
     clearTimeout(diffTimer);
@@ -159,8 +121,11 @@ LUM.git = (function () {
       head = await window.lumen.gitHeadFile(repo, buf.path);
       headCache.set(buf.path, head);
     }
+    // The pane may have switched buffers during the await — bail if so, otherwise
+    // we'd diff this file's HEAD against a different file's current text.
+    if (pane.currentId !== buf.id) return;
     const model = ed.getModel();
-    if (!model) return;
+    if (!model || model !== buf.model) return;
     if (head == null) {
       // new/untracked file: mark all lines as added
       const count = model.getLineCount();
@@ -169,16 +134,84 @@ LUM.git = (function () {
         decos.push({ range: new monaco.Range(l, 1, l, 1), options: { linesDecorationsClassName: 'git-gutter-add', isWholeLine: false } });
       }
       decoState.set(ed, ed.deltaDecorations(decoState.get(ed) || [], decos));
+      hunkState.set(ed, count ? [{ kind: 'add', bStart: 1, bEnd: count, head: [] }] : []);
       return;
     }
     const aLines = head.replace(/\r\n/g, '\n').split('\n');
     const bLines = model.getValue().replace(/\r\n/g, '\n').split('\n');
-    const { added, modified, deleted } = lineDiff(aLines, bLines);
+    const { hunks } = diffHunks(aLines, bLines);
+    hunkState.set(ed, hunks);
     const decos = [];
-    added.forEach((l) => decos.push(deco(l, 'git-gutter-add')));
-    modified.forEach((l) => decos.push(deco(l, 'git-gutter-mod')));
-    deleted.forEach((l) => decos.push(deco(l, 'git-gutter-del')));
+    for (const h of hunks) {
+      if (h.kind === 'del') {
+        decos.push(deco(hunkAnchor(h), 'git-gutter-del'));
+      } else {
+        const cls = h.kind === 'add' ? 'git-gutter-add' : 'git-gutter-mod';
+        for (let l = h.bStart; l <= h.bEnd; l++) decos.push(deco(l, cls));
+      }
+    }
     decoState.set(ed, ed.deltaDecorations(decoState.get(ed) || [], decos));
+  }
+
+  // ---- hunk navigation + revert (Sublime's History commands) --------------
+  function activeHunks() {
+    const ed = LUM.editor.activeEditor && LUM.editor.activeEditor();
+    if (!ed) return { ed: null, hunks: [] };
+    return { ed, hunks: (hunkState.get(ed) || []).slice().sort((a, b) => hunkAnchor(a) - hunkAnchor(b)) };
+  }
+
+  function gotoModification(dir) {
+    const { ed, hunks } = activeHunks();
+    if (!ed || !ed.getPosition) return;
+    if (!hunks.length) { LUM.app.toast('No changes vs HEAD in this file'); return; }
+    const cur = ed.getPosition().lineNumber;
+    let target = null;
+    if (dir > 0) target = hunks.find((h) => hunkAnchor(h) > cur) || hunks[0];
+    else { const before = hunks.filter((h) => hunkAnchor(h) < cur); target = before[before.length - 1] || hunks[hunks.length - 1]; }
+    const ln = hunkAnchor(target);
+    ed.setPosition({ lineNumber: ln, column: 1 });
+    ed.revealLineInCenter(ln);
+    ed.focus();
+  }
+
+  function hunkContains(h, line) {
+    if (h.bEnd >= h.bStart) return line >= h.bStart && line <= h.bEnd;
+    return line === h.bStart || line === Math.max(1, h.bStart - 1);
+  }
+
+  // Revert just the hunk under the caret to its HEAD text (Ctrl+K Ctrl+Z).
+  function revertHunk() {
+    const { ed, hunks } = activeHunks();
+    if (!ed) return;
+    if (!hunks.length) { LUM.app.toast('No changes to revert'); return; }
+    const model = ed.getModel();
+    const cur = ed.getPosition().lineNumber;
+    const h = hunks.find((x) => hunkContains(x, cur)) || hunks.find((x) => hunkAnchor(x) >= cur) || hunks[0];
+    const lineCount = model.getLineCount();
+    let range, text;
+    if (h.bEnd >= h.bStart) {
+      if (h.bEnd < lineCount) {
+        range = new monaco.Range(h.bStart, 1, h.bEnd + 1, 1);
+        text = h.head.length ? h.head.join('\n') + '\n' : '';
+      } else {
+        range = new monaco.Range(h.bStart, 1, h.bEnd, model.getLineMaxColumn(h.bEnd));
+        text = h.head.join('\n');
+      }
+    } else {
+      // pure deletion — re-insert the removed HEAD lines
+      if (h.bStart <= lineCount) {
+        range = new monaco.Range(h.bStart, 1, h.bStart, 1);
+        text = h.head.join('\n') + '\n';
+      } else {
+        const last = model.getLineMaxColumn(lineCount);
+        range = new monaco.Range(lineCount, last, lineCount, last);
+        text = '\n' + h.head.join('\n');
+      }
+    }
+    ed.executeEdits('git-revert-hunk', [{ range, text }]);
+    ed.setPosition({ lineNumber: Math.min(h.bStart, ed.getModel().getLineCount()), column: 1 });
+    scheduleDiff();
+    LUM.app.toast('Reverted hunk');
   }
 
   function deco(line, cls) {
@@ -200,5 +233,6 @@ LUM.git = (function () {
   }
 
   return { init, onFolderOpen, refresh, scheduleDiff, updateDiff, decorateSidebar, revertFile,
+    gotoModification, revertHunk,
     statusClassFor, get repo() { return repo; } };
 })();

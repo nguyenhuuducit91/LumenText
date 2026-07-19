@@ -57,6 +57,11 @@ LUM.keymap = (function () {
   function onKeydown(e) {
     if (!seqs.length) return;
     if (LUM.palette && LUM.palette.isOpen()) return;
+    // Don't let a user keybinding swallow characters typed into a chrome input
+    // (Find bar, tree rename, dialogs). The Monaco editor's own textarea lives
+    // inside .monaco-editor and is intentionally NOT excluded.
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && !ae.closest('.monaco-editor')) return;
     const combo = comboOf(e);
     if (!combo) return;
 
@@ -68,8 +73,11 @@ LUM.keymap = (function () {
       LUM.commands.run(exact.command);
       return;
     }
+    // A user-defined chord prefix: stop propagation so Monaco's own Ctrl+K action
+    // doesn't fire before the chord completes (only fires when the user actually
+    // defined a chord starting with this combo).
     if (seqs.some((s) => isPrefix(trial, s.seq))) {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       pending = trial;
       clearTimeout(timer);
       timer = setTimeout(reset, 1300);
@@ -82,7 +90,7 @@ LUM.keymap = (function () {
       e.preventDefault(); e.stopPropagation();
       LUM.commands.run(one.command);
     } else if (seqs.some((s) => s.seq.length > 1 && s.seq[0] === combo)) {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       pending = [combo];
       timer = setTimeout(reset, 1300);
     }

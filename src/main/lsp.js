@@ -82,7 +82,9 @@ class Server {
   }
 
   async _initialize() {
-    const rootUri = 'file://' + this.root;
+    // Encode the path so a root with spaces / non-ASCII (or a Windows drive)
+    // produces a valid file:// URI the server accepts.
+    const rootUri = 'file://' + encodeURI(this.root).replace(/#/g, '%23');
     await this.request('initialize', {
       processId: process.pid,
       rootUri,

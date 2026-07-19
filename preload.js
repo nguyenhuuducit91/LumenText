@@ -85,6 +85,7 @@ contextBridge.exposeInMainWorld('lumen', {
   lspDidClose: (root, uri) => ipcRenderer.invoke('lsp:didClose', root, uri),
   lspCompletion: (root, uri, position) => ipcRenderer.invoke('lsp:completion', root, uri, position),
   lspHover: (root, uri, position) => ipcRenderer.invoke('lsp:hover', root, uri, position),
+  lspDefinition: (root, uri, position) => ipcRenderer.invoke('lsp:definition', root, uri, position),
   onLspDiagnostics: (cb) => ipcRenderer.on('lsp:diagnostics', (_e, uri, diags) => cb(uri, diags)),
 
   // large-file streaming engine

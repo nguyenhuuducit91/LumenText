@@ -229,7 +229,8 @@ LUM.app = (function () {
     const sideDir = async () => { const t = S.commandTarget(); return (await S.isDirPath(t)) ? t : window.lumen.dirname(t); };
     def('side.newFile', 'New File in Folder', 'Sidebar', '', async () => S.startCreate(await sideDir(), false));
     def('side.newFolder', 'New Folder', 'Sidebar', '', async () => S.startCreate(await sideDir(), true));
-    def('side.rename', 'Rename File/Folder', 'Sidebar', 'F2', async () => { const t = S.commandTarget(); if (t && t !== S.root) S.startRename(t, await S.isDirPath(t)); });
+    // No default key: F2 is Next Bookmark (Sublime). Rename via context menu / palette.
+    def('side.rename', 'Rename File/Folder', 'Sidebar', '', async () => { const t = S.commandTarget(); if (t && t !== S.root) S.startRename(t, await S.isDirPath(t)); });
     def('side.delete', 'Delete File/Folder', 'Sidebar', '', async () => { const t = S.commandTarget(); if (t && t !== S.root) S.doDelete(t, await S.isDirPath(t)); });
     def('side.duplicate', 'Duplicate File/Folder', 'Sidebar', '', async () => { const t = S.commandTarget(); if (t && t !== S.root) S.doDuplicate(t, await S.isDirPath(t)); });
     def('side.copyPath', 'Copy Path', 'Sidebar', '', () => { const t = S.commandTarget(); if (t) S.copyPath(t, false); });
@@ -347,7 +348,8 @@ LUM.app = (function () {
     def('sel.jumpBracket', 'Jump to Matching Bracket', 'Selection', 'Ctrl+M', () => triggerAction('editor.action.jumpToBracket'));
     def('sel.selectAll', 'Select All', 'Selection', 'Ctrl+A', () => triggerAction('editor.action.selectAll'));
     def('sel.single', 'Single Selection', 'Selection', '', () => triggerAction('removeSecondaryCursors'));
-    def('sel.invert', 'Invert Selection', 'Selection', 'Ctrl+Shift+I', invertSelection);
+    // No default key: Ctrl+Shift+I is DevTools. Reachable via palette / Selection menu.
+    def('sel.invert', 'Invert Selection', 'Selection', '', invertSelection);
 
     // Text editing (Sublime's Edit > Text submenu)
     def('edit.pasteAndIndent', 'Paste and Indent', 'Edit', 'Ctrl+Shift+V', pasteAndIndent);
@@ -356,9 +358,25 @@ LUM.app = (function () {
 
     // Find using current selection
     def('find.useSelection', 'Use Selection for Find', 'Find', 'Ctrl+E', () => LUM.find.useSelection());
+    def('find.underNext', 'Find Under', 'Find', 'Ctrl+F3', () => LUM.find.findUnder(1));
+    def('find.underPrev', 'Find Under (Previous)', 'Find', 'Ctrl+Shift+F3', () => LUM.find.findUnder(-1));
+    def('find.nextResult', 'Next Result', 'Find', 'F4', nextResult);
+    def('find.prevResult', 'Previous Result', 'Find', 'Shift+F4', prevResult);
 
-    // Goto definition (LSP / Monaco)
-    def('goto.definition', 'Goto Definition', 'Goto', 'F12', () => triggerAction('editor.action.revealDefinition'));
+    // Tab navigation
+    def('tab.next', 'Next Tab', 'Tabs', 'Ctrl+PageDown', () => LUM.editor.stepTab(1));
+    def('tab.prev', 'Previous Tab', 'Tabs', 'Ctrl+PageUp', () => LUM.editor.stepTab(-1));
+    def('tab.mruNext', 'Cycle Tabs (Most Recent)', 'Tabs', 'Ctrl+Tab', () => LUM.editor.mruCycle(1));
+    def('tab.mruPrev', 'Cycle Tabs (Most Recent, Reverse)', 'Tabs', 'Ctrl+Shift+Tab', () => LUM.editor.mruCycle(-1));
+
+    // Scroll the caret line to the vertical centre (Sublime Ctrl+K Ctrl+C).
+    def('edit.centerLine', 'Scroll to Center', 'View', '', () => {
+      const ed = LUM.editor.activeEditor();
+      if (ed && ed.getPosition) ed.revealLineInCenter(ed.getPosition().lineNumber);
+    });
+
+    // Goto definition (LSP cross-file, else Monaco's word-based reveal)
+    def('goto.definition', 'Goto Definition', 'Goto', 'F12', () => (LUM.lsp ? LUM.lsp.gotoDefinition() : triggerAction('editor.action.revealDefinition')));
 
     // View: font size + UI element toggles
     def('view.fontLarger', 'Font: Larger', 'View', 'Ctrl+=', () => bumpFont(1));
@@ -373,7 +391,7 @@ LUM.app = (function () {
     def('edit.toggleSpaces', 'Indentation: Indent Using Spaces', 'Line', '', () => LUM.editor.toggleInsertSpaces());
 
     // Goto word in current file (# prefix in Goto Anything)
-    def('goto.word', 'Goto Word in File… (#)', 'Goto', '', () => LUM.palette.open('word'));
+    def('goto.word', 'Goto Word in File… (#)', 'Goto', 'Ctrl+;', () => LUM.palette.open('word'));
 
     def('view.toggleSidebar', 'Toggle Sidebar', 'View', 'Ctrl+B', toggleSidebar);
     def('view.toggleMinimap', 'Toggle Minimap', 'View', '', toggleMinimap);
@@ -399,8 +417,8 @@ LUM.app = (function () {
     def('build.cancel', 'Build: Cancel', 'Build', '', () => LUM.build.stop());
 
     // Macros
-    def('macro.toggle', 'Macro: Start/Stop Recording', 'Macro', 'Ctrl+Q', () => LUM.macros.toggle());
-    def('macro.play', 'Macro: Playback', 'Macro', 'Ctrl+Shift+Q', () => LUM.macros.play());
+    def('macro.toggle', 'Macro: Start/Stop Recording', 'Macro', 'Ctrl+Alt+Q', () => LUM.macros.toggle());
+    def('macro.play', 'Macro: Playback', 'Macro', 'Ctrl+Alt+Shift+Q', () => LUM.macros.play());
 
     // Tabs
     def('tab.closeOthers', 'Close Other Tabs', 'Tabs', '', () => LUM.editor.closeOthers(activeId()));
@@ -430,6 +448,9 @@ LUM.app = (function () {
     // Git
     def('git.refresh', 'Git: Refresh Status', 'Git', '', () => LUM.git.refresh());
     def('git.revertFile', 'Git: Revert File to HEAD', 'Git', '', () => LUM.git.revertFile());
+    def('git.nextMod', 'History: Next Modification', 'Git', 'Ctrl+.', () => LUM.git.gotoModification(1));
+    def('git.prevMod', 'History: Previous Modification', 'Git', 'Ctrl+Shift+.', () => LUM.git.gotoModification(-1));
+    def('git.revertHunk', 'History: Revert Hunk', 'Git', '', () => LUM.git.revertHunk());
 
     // Snippets
     def('snippet.insert', 'Snippet: Insert…', 'Snippets', '', () => LUM.snippets.pickAndInsert());
@@ -513,13 +534,16 @@ LUM.app = (function () {
   }
   function toggleMinimap() {
     LUM.state.minimap = !LUM.state.minimap;
-    LUM.editor.panes.forEach((p) => p.editor.updateOptions({ minimap: { enabled: LUM.state.minimap } }));
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ minimap: { enabled: LUM.state.minimap } }));
+    // Persist so a later settings re-apply (font bump, autosave change) doesn't
+    // snap the minimap back to the saved baseline.
+    LUM.settings.set('minimap', LUM.state.minimap);
   }
   function toggleWordWrap() {
-    const ed = LUM.editor.activeEditor();
-    if (!ed) return;
-    const cur = ed.getOption(monaco.editor.EditorOption.wordWrap);
-    ed.updateOptions({ wordWrap: cur === 'on' ? 'off' : 'on' });
+    const next = !LUM.settings.get('word_wrap', false);
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ wordWrap: next ? 'on' : 'off' }));
+    LUM.settings.set('word_wrap', next); // persist so it survives a settings re-apply
+    toast('Word wrap: ' + (next ? 'on' : 'off'));
   }
   // Font size is tracked in-memory and persisted debounced, so holding Ctrl+= /
   // Ctrl+- doesn't interleave read-modify-write on the settings file and lose steps.
@@ -588,7 +612,12 @@ LUM.app = (function () {
     toast('Rulers: ' + (next.length ? next.join(', ') : 'off'));
   }
   function chooseTheme() {
-    openPicker(THEMES.map((t) => ({ label: t.label, run: () => applyTheme(t.id) })), 'Color Scheme');
+    // Apply immediately for instant feedback, and persist so it sticks across
+    // restarts and later settings re-applies.
+    openPicker(THEMES.map((t) => ({
+      label: t.label,
+      run: () => { applyTheme(t.id); LUM.settings.set('theme', t.id); }
+    })), 'Color Scheme');
   }
   function chooseLanguage() {
     const buf = LUM.editor.activeBuffer();
@@ -768,28 +797,84 @@ LUM.app = (function () {
   }
 
   // ---- global keybindings (non-editor: overlay + app-level) ---------------
+  // A declarative table keyed by a canonical "ctrl+alt+shift+key" combo. Each
+  // value is a command id, or { cmd|fn, stop } where `stop` also stops the event
+  // reaching Monaco (used for Find, so our bottom bar opens instead of the popup).
+  // Precise modifier matching (every combo lists exactly its modifiers) fixes the
+  // old chain where Ctrl+Alt+S fell through to Ctrl+S, etc.
+  function comboOf(e) {
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('ctrl');
+    if (e.altKey) parts.push('alt');
+    if (e.shiftKey) parts.push('shift');
+    parts.push((e.key || '').toLowerCase());
+    return parts.join('+');
+  }
+  // F4 / Shift+F4 route to whichever result set is live: Find-in-Files, else build.
+  function nextResult() {
+    if (LUM.findInFiles && LUM.findInFiles.hasResults && LUM.findInFiles.hasResults()) LUM.findInFiles.nextResult();
+    else if (LUM.build && LUM.build.nextError) LUM.build.nextError();
+  }
+  function prevResult() {
+    if (LUM.findInFiles && LUM.findInFiles.hasResults && LUM.findInFiles.hasResults()) LUM.findInFiles.prevResult();
+    else if (LUM.build && LUM.build.prevError) LUM.build.prevError();
+  }
+
   function installKeybindings() {
+    const T = {
+      'ctrl+p': 'goto.anything',
+      'ctrl+shift+p': 'goto.command',
+      'ctrl+g': 'goto.line',
+      'ctrl+r': 'goto.symbol',
+      'ctrl+shift+r': 'goto.projectSymbol', // was un-intercepted → hard reload
+      'ctrl+;': 'goto.word',
+      'ctrl+b': 'view.toggleSidebar',
+      'ctrl+s': 'file.save',
+      'ctrl+shift+s': 'file.saveAs',
+      'ctrl+alt+s': 'file.saveAll',         // was shadowed by ctrl+s
+      'ctrl+n': 'file.new',
+      'ctrl+o': 'file.open',
+      'ctrl+w': 'file.closeTab',
+      // (Ctrl+Shift+Z / Ctrl+Y redo are handled natively by Monaco — not re-bound
+      //  here, which would double-apply the redo.)
+      'ctrl+shift+f': 'find.inFiles',
+      // Find keys: stop propagation so Monaco's own widget never opens.
+      'ctrl+f': { cmd: 'edit.find', stop: true },
+      'ctrl+h': { cmd: 'edit.replace', stop: true },
+      'f3': { fn: () => LUM.find.next(), stop: true },
+      'shift+f3': { fn: () => LUM.find.prev(), stop: true },
+      'ctrl+f3': { fn: () => LUM.find.findUnder(1), stop: true },
+      'ctrl+shift+f3': { fn: () => LUM.find.findUnder(-1), stop: true },
+      'f4': { fn: nextResult, stop: true },
+      'shift+f4': { fn: prevResult, stop: true },
+      // Tab navigation
+      'ctrl+pagedown': { fn: () => LUM.editor.stepTab(1), stop: true },
+      'ctrl+pageup': { fn: () => LUM.editor.stepTab(-1), stop: true },
+      'ctrl+tab': { fn: () => LUM.editor.mruCycle(1), stop: true },
+      'ctrl+shift+tab': { fn: () => LUM.editor.mruCycle(-1), stop: true }
+    };
     document.addEventListener('keydown', (e) => {
       if (LUM.palette.isOpen()) return; // palette handles its own keys
-      const ctrl = e.ctrlKey || e.metaKey;
-      const k = e.key.toLowerCase();
-      // Map a subset here; most editor actions are bound inside Monaco already.
-      if (ctrl && !e.shiftKey && !e.altKey && k === 'p') { e.preventDefault(); LUM.commands.run('goto.anything'); }
-      else if (ctrl && e.shiftKey && k === 'p') { e.preventDefault(); LUM.commands.run('goto.command'); }
-      else if (ctrl && !e.shiftKey && k === 'g') { e.preventDefault(); LUM.commands.run('goto.line'); }
-      else if (ctrl && !e.shiftKey && k === 'r') { e.preventDefault(); LUM.commands.run('goto.symbol'); }
-      else if (ctrl && !e.shiftKey && k === 'b') { e.preventDefault(); LUM.commands.run('view.toggleSidebar'); }
-      else if (ctrl && !e.shiftKey && k === 's') { e.preventDefault(); LUM.commands.run('file.save'); }
-      else if (ctrl && e.shiftKey && k === 's') { e.preventDefault(); LUM.commands.run('file.saveAs'); }
-      else if (ctrl && !e.shiftKey && k === 'n') { e.preventDefault(); LUM.commands.run('file.new'); }
-      else if (ctrl && !e.shiftKey && k === 'o') { e.preventDefault(); LUM.commands.run('file.open'); }
-      else if (ctrl && !e.shiftKey && k === 'w') { e.preventDefault(); LUM.commands.run('file.closeTab'); }
-      else if (ctrl && e.shiftKey && k === 'f') { e.preventDefault(); LUM.commands.run('find.inFiles'); }
-      // Intercept find keys BEFORE Monaco so our bottom bar opens (not the popup).
-      // stopPropagation in the capture phase keeps the event from reaching Monaco.
-      else if (ctrl && !e.shiftKey && !e.altKey && k === 'f') { e.preventDefault(); e.stopPropagation(); LUM.find.open(false); }
-      else if (ctrl && !e.shiftKey && k === 'h') { e.preventDefault(); e.stopPropagation(); LUM.find.open(true); }
-      else if (!ctrl && !e.altKey && k === 'f3') { e.preventDefault(); e.stopPropagation(); e.shiftKey ? LUM.find.prev() : LUM.find.next(); }
+      // Alt+1..9 selects a tab by index (Alt+9 = last), Sublime-style.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+        e.preventDefault(); e.stopPropagation();
+        LUM.editor.selectTabByIndex(+e.key);
+        return;
+      }
+      // Git hunk nav: Ctrl+. / Ctrl+Shift+. — matched by key CODE so it's robust
+      // across layouts and never collides with Ctrl+, (Settings).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'Period') {
+        e.preventDefault(); e.stopPropagation();
+        LUM.commands.run(e.shiftKey ? 'git.prevMod' : 'git.nextMod');
+        return;
+      }
+      const entry = T[comboOf(e)];
+      if (!entry) return;
+      e.preventDefault();
+      if (typeof entry === 'object' && entry.stop) e.stopPropagation();
+      if (typeof entry === 'string') LUM.commands.run(entry);
+      else if (entry.cmd) LUM.commands.run(entry.cmd);
+      else if (entry.fn) entry.fn();
     }, true);
   }
 

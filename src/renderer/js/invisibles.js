@@ -18,9 +18,10 @@ LUM.invisibles = (function () {
     guides: true,   // shown by default, like Notepad++
     wrap: false
   };
-  // Per-pane EOL decoration collections.
+  // Per-pane EOL decoration collections + which editors already have scroll/
+  // content listeners wired (so panes split AFTER first enable still refresh).
   const eolCollections = new WeakMap();
-  let eolListeners = false;
+  const eolWired = new WeakSet();
 
   function baseWhitespace() {
     return (LUM.settings && LUM.settings.get) ? LUM.settings.get('render_whitespace', 'selection') : 'selection';
@@ -87,16 +88,14 @@ LUM.invisibles = (function () {
       let col = eolCollections.get(ed);
       if (!col) { col = ed.createDecorationsCollection(); eolCollections.set(ed, col); }
       col.set(state.eol ? eolDecosFor(ed) : []);
+      // Wire per-editor listeners exactly once — so a pane created after the
+      // first enable still re-renders its markers on scroll/edit.
+      if (!eolWired.has(ed)) {
+        eolWired.add(ed);
+        ed.onDidScrollChange(() => { if (state.eol) refreshEol(); });
+        ed.onDidChangeModelContent(() => { if (state.eol) refreshEol(); });
+      }
     });
-    // Re-render EOL markers as the viewport or content changes (attach once).
-    if (state.eol && !eolListeners) {
-      eolListeners = true;
-      LUM.editor.panes.forEach((p) => {
-        if (!p.editor) return;
-        p.editor.onDidScrollChange(() => { if (state.eol) refreshEol(); });
-        p.editor.onDidChangeModelContent(() => { if (state.eol) refreshEol(); });
-      });
-    }
   }
 
   function persist() {

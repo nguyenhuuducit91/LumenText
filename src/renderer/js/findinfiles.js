@@ -11,6 +11,8 @@ LUM.findInFiles = (function () {
   let els = null;
   let running = false;
   let scopeDir = null; // when set, search is limited to this folder instead of the project root
+  let flat = [];       // flat [{path, line, col}] for F4/Shift+F4 result navigation
+  let cursor = -1;     // index into `flat` of the last-visited result
 
   function grab() {
     if (els) return els;
@@ -84,13 +86,26 @@ LUM.findInFiles = (function () {
     running = true;
     els.summary.textContent = 'Searching…';
     els.results.innerHTML = '';
-    const res = await window.lumen.searchInFiles(scopeDir || LUM.sidebar.root, q, opts);
-    running = false;
-    if (res.error) {
-      els.summary.textContent = res.error;
-      return;
+    try {
+      // Multi-root: when no explicit scope folder, search EVERY project root and
+      // aggregate — otherwise Ctrl+Shift+F only ever hits the first folder.
+      const roots = scopeDir ? [scopeDir] : LUM.sidebar.roots;
+      let agg = { files: [], total: 0, scanned: 0, truncated: false };
+      for (const root of roots) {
+        const res = await window.lumen.searchInFiles(root, q, opts);
+        if (res && res.error) { els.summary.textContent = res.error; return; }
+        if (!res) continue;
+        agg.files.push(...res.files);
+        agg.total += res.total || 0;
+        agg.scanned += res.scanned || 0;
+        agg.truncated = agg.truncated || !!res.truncated;
+      }
+      render(agg);
+    } catch (e) {
+      els.summary.textContent = 'Search failed: ' + (e && e.message ? e.message : e);
+    } finally {
+      running = false; // never leave the panel wedged after a failed search
     }
-    render(res);
   }
 
   function esc(s) {
@@ -111,6 +126,7 @@ LUM.findInFiles = (function () {
       `${res.total.toLocaleString()} match${res.total === 1 ? '' : 'es'} in ` +
       `${res.files.length.toLocaleString()} file${res.files.length === 1 ? '' : 's'} ` +
       `(${res.scanned.toLocaleString()} scanned)` + (res.truncated ? ' — results limited' : '');
+    flat = []; cursor = -1;
     const frag = document.createDocumentFragment();
     for (const f of res.files) {
       const head = document.createElement('div');
@@ -120,12 +136,15 @@ LUM.findInFiles = (function () {
       head.addEventListener('click', () => openAt(f.path, f.matches[0].line, f.matches[0].col));
       frag.appendChild(head);
       for (const m of f.matches) {
+        const idx = flat.length;
+        flat.push({ path: f.path, line: m.line, col: m.col });
         const row = document.createElement('div');
         row.className = 'find-match';
+        row.dataset.idx = idx;
         row.innerHTML =
           `<span class="ln">${m.line}</span>` +
           `<span class="tx">${highlight(m.text.replace(/\t/g, '  '), adjust(m.text, m.ranges))}</span>`;
-        row.addEventListener('click', () => openAt(f.path, m.line, m.col));
+        row.addEventListener('click', () => { cursor = idx; markActive(); openAt(f.path, m.line, m.col); });
         frag.appendChild(row);
       }
     }
@@ -154,5 +173,26 @@ LUM.findInFiles = (function () {
     LUM.sidebar.highlightActive && LUM.sidebar.highlightActive();
   }
 
-  return { init, open, hide, isOpen };
+  // Highlight the current result row and scroll it into view in the panel.
+  function markActive() {
+    if (!els) return;
+    els.results.querySelectorAll('.find-match.current').forEach((r) => r.classList.remove('current'));
+    const row = els.results.querySelector(`.find-match[data-idx="${cursor}"]`);
+    if (row) { row.classList.add('current'); row.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  // F4 / Shift+F4 — jump to the next / previous result across all files.
+  function nextResult() { return step(1); }
+  function prevResult() { return step(-1); }
+  function step(dir) {
+    if (!flat.length) return false;
+    cursor = (cursor + dir + flat.length) % flat.length;
+    const r = flat[cursor];
+    markActive();
+    openAt(r.path, r.line, r.col);
+    return true;
+  }
+  function hasResults() { return flat.length > 0; }
+
+  return { init, open, hide, isOpen, nextResult, prevResult, hasResults };
 })();

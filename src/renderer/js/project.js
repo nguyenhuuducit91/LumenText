@@ -9,6 +9,7 @@ window.LUM = window.LUM || {};
 // ===========================================================================
 LUM.project = (function () {
   let projectPath = null; // path to the active .sublime-project, or null
+  let projectData = {};   // the full parsed .sublime-project (settings, build_systems, …)
 
   function name() {
     if (projectPath) return window.lumen.basename(projectPath).replace(/\.sublime-project$/, '');
@@ -45,9 +46,17 @@ LUM.project = (function () {
         else if (!r.startsWith('..')) rel = r;      // a descendant → keep relative
         // else: outside the project dir → keep absolute
       }
-      return { path: rel };
+      // Preserve any per-folder keys (name, *_exclude_patterns, follow_symlinks)
+      // that were on the original folder entry for this path.
+      const prev = (projectData.folders || []).find((f) => {
+        const abs = window.lumen.isAbsolute(f.path) ? f.path : window.lumen.resolve(dir || '.', f.path);
+        return abs === p || f.path === rel;
+      });
+      return Object.assign({}, prev, { path: rel });
     });
-    return { folders, settings: {} };
+    // Merge folders back into the full project object so settings, build_systems,
+    // and other keys survive a save instead of being clobbered with {}.
+    return Object.assign({}, projectData, { folders });
   }
 
   async function openPath(p) {
@@ -56,7 +65,8 @@ LUM.project = (function () {
       const proj = JSON.parse(content);
       const folders = resolveFolders(proj, p);
       if (!folders.length) { LUM.app.toast('Project has no folders'); return; }
-      await LUM.sidebar.setRoots(folders);
+      await LUM.sidebar.setRoots(folders); // nulls project.path (clears projectData)
+      projectData = proj; // retain settings / build_systems / exclude patterns
       projectPath = p;
       updateLabel();
       await window.lumen.projectAddRecent(p);
@@ -115,6 +125,7 @@ LUM.project = (function () {
 
   async function close() {
     projectPath = null;
+    projectData = {};
     await LUM.sidebar.removeAllFolders();
     updateLabel();
     LUM.app.toast('Project closed');
@@ -148,7 +159,7 @@ LUM.project = (function () {
 
   return {
     get path() { return projectPath; },
-    set path(p) { projectPath = p; },
+    set path(p) { projectPath = p; if (p == null) projectData = {}; },
     name, updateLabel, serialize,
     open, openPath, quickSwitch, save, saveAs, close, edit,
     addFolder, removeAllFolders, refreshFolders, onFoldersChanged, clearRecent

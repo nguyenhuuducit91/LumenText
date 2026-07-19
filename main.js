@@ -372,15 +372,19 @@ function buildMenu() {
       label: 'Find',
       submenu: [
         { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => send('edit.find') },
-        { label: 'Find Next', accelerator: 'F3', click: () => send('edit.findNext') },
-        { label: 'Find Previous', accelerator: 'Shift+F3', click: () => send('edit.findPrev') },
+        { label: 'Find Next', accelerator: 'F3', registerAccelerator: false, click: () => send('edit.findNext') },
+        { label: 'Find Previous', accelerator: 'Shift+F3', registerAccelerator: false, click: () => send('edit.findPrev') },
+        { label: 'Find Under', accelerator: 'CmdOrCtrl+F3', registerAccelerator: false, click: () => send('find.underNext') },
+        { label: 'Find Under Previous', accelerator: 'CmdOrCtrl+Shift+F3', registerAccelerator: false, click: () => send('find.underPrev') },
         { label: 'Incremental Find', accelerator: 'CmdOrCtrl+I', click: () => send('edit.incrementalFind') },
         { type: 'separator' },
         { label: 'Replace…', accelerator: 'CmdOrCtrl+H', click: () => send('edit.replace') },
         { type: 'separator' },
         { label: 'Use Selection for Find', accelerator: 'CmdOrCtrl+E', click: () => send('find.useSelection') },
         { type: 'separator' },
-        { label: 'Find in Files…', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('find.inFiles') }
+        { label: 'Find in Files…', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('find.inFiles') },
+        { label: 'Next Result', accelerator: 'F4', registerAccelerator: false, click: () => send('find.nextResult') },
+        { label: 'Previous Result', accelerator: 'Shift+F4', registerAccelerator: false, click: () => send('find.prevResult') }
       ]
     },
     {
@@ -448,8 +452,20 @@ function buildMenu() {
         { label: 'Re-run Last Build', accelerator: 'F7', click: () => send('build.rerun') },
         { label: 'Cancel Build', click: () => send('build.cancel') },
         { type: 'separator' },
-        { label: 'Record / Stop Macro', accelerator: 'CmdOrCtrl+Q', click: () => send('macro.toggle') },
-        { label: 'Playback Macro', accelerator: 'CmdOrCtrl+Shift+Q', click: () => send('macro.play') }
+        { label: 'Record / Stop Macro', accelerator: 'CmdOrCtrl+Alt+Q', click: () => send('macro.toggle') },
+        { label: 'Playback Macro', accelerator: 'CmdOrCtrl+Alt+Shift+Q', click: () => send('macro.play') },
+        { type: 'separator' },
+        {
+          label: 'Git',
+          submenu: [
+            { label: 'History: Next Modification', accelerator: 'CmdOrCtrl+.', registerAccelerator: false, click: () => send('git.nextMod') },
+            { label: 'History: Previous Modification', accelerator: 'CmdOrCtrl+Shift+.', registerAccelerator: false, click: () => send('git.prevMod') },
+            { label: 'History: Revert Hunk', click: () => send('git.revertHunk') },
+            { type: 'separator' },
+            { label: 'Revert File to HEAD', click: () => send('git.revertFile') },
+            { label: 'Refresh Status', click: () => send('git.refresh') }
+          ]
+        }
       ]
     },
     {
@@ -559,9 +575,8 @@ ipcMain.handle('fs:walk', async (_e, root, limit = 20000) => {
     }
     for (const e of entries) {
       if (out.length >= limit) return;
-      if (e.name.startsWith('.') && e.name !== '.env') {
-        if (IGNORE.has(e.name)) continue;
-      }
+      // Skip hidden dotfiles/dirs (keep .env) and heavy build/vendor dirs.
+      if (e.name.startsWith('.') && e.name !== '.env') continue;
       if (IGNORE.has(e.name)) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) await walk(full);
@@ -733,6 +748,11 @@ ipcMain.handle('lsp:hover', (_e, root, uri, position) => {
   if (!s) return null;
   return new Promise((res) => s.whenReady(async () => res(await s.request('textDocument/hover', { textDocument: { uri }, position }))));
 });
+ipcMain.handle('lsp:definition', (_e, root, uri, position) => {
+  const s = lsp.existing(root);
+  if (!s) return null;
+  return new Promise((res) => s.whenReady(async () => res(await s.request('textDocument/definition', { textDocument: { uri }, position }))));
+});
 
 // ---- git ------------------------------------------------------------------
 ipcMain.handle('git:root', (_e, dir) => git.root(dir));
@@ -741,11 +761,20 @@ ipcMain.handle('git:headFile', (_e, repo, absPath) => git.headFile(repo, absPath
 
 ipcMain.handle('app:userDataPath', () => app.getPath('userData'));
 
+// Reduce a renderer-supplied config name to a bare filename inside userData —
+// never let "../../.bashrc" escape the config directory.
+function safeConfigName(name) {
+  const base = path.basename(String(name || ''));
+  if (!base || base === '.' || base === '..' || base.includes(path.sep)) {
+    throw new Error('Invalid config name: ' + name);
+  }
+  return base;
+}
 // Ensure a config file exists (create with a template if missing); return path.
 ipcMain.handle('config:ensure', async (_e, name, template) => {
   const dir = app.getPath('userData');
   await fsp.mkdir(dir, { recursive: true });
-  const file = path.join(dir, name);
+  const file = path.join(dir, safeConfigName(name));
   try {
     await fsp.access(file);
   } catch {
@@ -757,7 +786,7 @@ ipcMain.handle('config:ensure', async (_e, name, template) => {
 ipcMain.handle('config:writeDefault', async (_e, name, content) => {
   const dir = app.getPath('userData');
   await fsp.mkdir(dir, { recursive: true });
-  const file = path.join(dir, name);
+  const file = path.join(dir, safeConfigName(name));
   await fsp.writeFile(file, content, 'utf8');
   return file;
 });

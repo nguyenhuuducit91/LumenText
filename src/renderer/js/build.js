@@ -12,6 +12,8 @@ LUM.build = (function () {
   let curId = null;
   let lastCmd = null, lastCwd = null, lastTitle = null;
   let raw = '';
+  let errors = [];       // [{file, line, col}] collected by linkify (for F4/Shift+F4)
+  let errCursor = -1;
 
   function grab() {
     if (els) return els;
@@ -47,7 +49,13 @@ LUM.build = (function () {
   function close() { grab().panel.classList.add('hidden'); LUM.editor.layout(); }
   function stop() { if (curId != null) window.lumen.procKill(curId); }
 
+  // Strip ANSI colour/cursor escape sequences so compiler/linter output reads
+  // cleanly and file:line links aren't split by escape bytes.
+  function stripAnsi(s) {
+    return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, '');
+  }
   function append(text) {
+    text = stripAnsi(text);
     raw += text;
     els.body.appendChild(document.createTextNode(text));
     els.body.scrollTop = els.body.scrollHeight;
@@ -59,9 +67,11 @@ LUM.build = (function () {
   function linkify() {
     const re = /([\w./\\+-]+\.[A-Za-z]{1,6}):(\d+)(?::(\d+))?/g;
     let out = '', last = 0, m;
+    errors = []; errCursor = -1;
     while ((m = re.exec(raw)) !== null) {
       out += esc(raw.slice(last, m.index));
       out += `<a class="out-link" data-file="${esc(m[1])}" data-line="${m[2]}" data-col="${m[3] || 1}">${esc(m[0])}</a>`;
+      errors.push({ file: m[1], line: +m[2], col: +(m[3] || 1) });
       last = m.index + m[0].length;
     }
     out += esc(raw.slice(last));
@@ -90,6 +100,7 @@ LUM.build = (function () {
 
   function run(cmd, cwd, title) {
     grab();
+    if (curId != null) { window.lumen.procKill(curId); curId = null; } // don't orphan a running build
     open();
     lastCmd = cmd; lastCwd = cwd; lastTitle = title || cmd;
     raw = '';
@@ -144,5 +155,17 @@ LUM.build = (function () {
 
   function rerun() { if (lastCmd) run(lastCmd, lastCwd, lastTitle); else chooseBuild(); }
 
-  return { init, run, chooseBuild, rerun, stop, open, close };
+  // F4 / Shift+F4 — walk build errors (file:line references) after a build ends.
+  function hasErrors() { return errors.length > 0; }
+  function nextError() { return stepError(1); }
+  function prevError() { return stepError(-1); }
+  function stepError(dir) {
+    if (!errors.length) return false;
+    errCursor = (errCursor + dir + errors.length) % errors.length;
+    const e = errors[errCursor];
+    jump(e.file, e.line, e.col);
+    return true;
+  }
+
+  return { init, run, chooseBuild, rerun, stop, open, close, hasErrors, nextError, prevError };
 })();

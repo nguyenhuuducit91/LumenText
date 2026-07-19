@@ -36,10 +36,34 @@ LUM.lsp = (function () {
     const uri = uriOf(buf.path);
     clearTimeout(changeTimers.get(uri));
     changeTimers.set(uri, setTimeout(() => {
+      changeTimers.delete(uri);
       const v = (versions.get(uri) || 1) + 1;
       versions.set(uri, v);
       window.lumen.lspDidChange(root, uri, v, buf.model.getValue());
     }, 350));
+  }
+
+  // Flush a pending debounced didChange NOW, so completion/hover/definition
+  // requests run against the text the server actually has (not stale content).
+  function flush(uri, model) {
+    if (!changeTimers.has(uri)) return;
+    clearTimeout(changeTimers.get(uri));
+    changeTimers.delete(uri);
+    const v = (versions.get(uri) || 1) + 1;
+    versions.set(uri, v);
+    window.lumen.lspDidChange(root, uri, v, model.getValue());
+  }
+
+  // A buffer was closed — tell the server and drop its bookkeeping so a later
+  // reopen sends a fresh didOpen (not a duplicate on an already-open document).
+  function onClose(buf) {
+    if (!root || !buf || !buf.path) return;
+    const uri = uriOf(buf.path);
+    if (!versions.has(uri)) return;
+    clearTimeout(changeTimers.get(uri));
+    changeTimers.delete(uri);
+    versions.delete(uri);
+    if (available) window.lumen.lspDidClose(root, uri);
   }
 
   function bufForModel(model) {
@@ -97,24 +121,45 @@ LUM.lsp = (function () {
       async provideCompletionItems(model, position) {
         const buf = bufForModel(model);
         if (!available || !root || !buf) return { suggestions: [] };
-        const res = await window.lumen.lspCompletion(root, uriOf(buf.path),
+        const uri = uriOf(buf.path);
+        flush(uri, model); // send pending edits so the server sees current text
+        const res = await window.lumen.lspCompletion(root, uri,
           { line: position.lineNumber - 1, character: position.column - 1 });
         const items = (res && (res.items || res)) || [];
         const word = model.getWordUntilPosition(position);
-        const range = {
+        const defRange = {
           startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
           startColumn: word.startColumn, endColumn: word.endColumn
         };
+        const SNIPPET = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
         return {
-          suggestions: items.slice(0, 300).map((it) => ({
-            label: typeof it.label === 'string' ? it.label : it.label.label,
-            kind: mapKind(it.kind),
-            insertText: it.insertText || (typeof it.label === 'string' ? it.label : it.label.label),
-            detail: it.detail,
-            documentation: it.documentation && (it.documentation.value || it.documentation),
-            sortText: it.sortText,
-            range
-          }))
+          suggestions: items.slice(0, 300).map((it) => {
+            const label = typeof it.label === 'string' ? it.label : it.label.label;
+            // Prefer the server's textEdit range/text when present, else the word range.
+            const te = it.textEdit;
+            const insertText = (te && te.newText) || it.insertText || label;
+            let range = defRange;
+            const r = te && (te.range || (te.insert));
+            if (r) {
+              range = {
+                startLineNumber: r.start.line + 1, startColumn: r.start.character + 1,
+                endLineNumber: r.end.line + 1, endColumn: r.end.character + 1
+              };
+            }
+            // insertTextFormat 2 = Snippet — let Monaco expand $1/$0 tab-stops.
+            const isSnippet = it.insertTextFormat === 2;
+            return {
+              label,
+              kind: mapKind(it.kind),
+              insertText,
+              insertTextRules: isSnippet ? SNIPPET : undefined,
+              detail: it.detail,
+              documentation: it.documentation && (it.documentation.value || it.documentation),
+              sortText: it.sortText,
+              filterText: it.filterText,
+              range
+            };
+          })
         };
       }
     });
@@ -123,7 +168,9 @@ LUM.lsp = (function () {
       async provideHover(model, position) {
         const buf = bufForModel(model);
         if (!available || !root || !buf) return null;
-        const res = await window.lumen.lspHover(root, uriOf(buf.path),
+        const uri = uriOf(buf.path);
+        flush(uri, model);
+        const res = await window.lumen.lspHover(root, uri,
           { line: position.lineNumber - 1, character: position.column - 1 });
         if (!res || !res.contents) return null;
         const c = res.contents;
@@ -133,6 +180,65 @@ LUM.lsp = (function () {
         return { contents: [{ value }] };
       }
     });
+
+    // In-editor definition (Ctrl+Click / peek). Cross-file jumps go through
+    // gotoDefinition() below, which can open a file Monaco doesn't have loaded.
+    monaco.languages.registerDefinitionProvider(LANGS, {
+      async provideDefinition(model, position) {
+        const buf = bufForModel(model);
+        if (!available || !root || !buf) return null;
+        const uri = uriOf(buf.path);
+        flush(uri, model);
+        const res = await window.lumen.lspDefinition(root, uri,
+          { line: position.lineNumber - 1, character: position.column - 1 });
+        return locsFromResult(res)
+          .filter((l) => pathFromUri(l.uri) === buf.path) // only same-file for peek
+          .map((l) => ({ uri: model.uri, range: toMonacoRange(l.range) }));
+      }
+    });
+  }
+
+  // Normalise Location | Location[] | LocationLink[] into [{uri, range}].
+  function locsFromResult(res) {
+    if (!res) return [];
+    const arr = Array.isArray(res) ? res : [res];
+    return arr.map((l) => l.targetUri
+      ? { uri: l.targetUri, range: l.targetSelectionRange || l.targetRange }
+      : { uri: l.uri, range: l.range }).filter((l) => l.uri && l.range);
+  }
+  function toMonacoRange(r) {
+    return new monaco.Range(r.start.line + 1, r.start.character + 1, r.end.line + 1, r.end.character + 1);
+  }
+
+  // Goto Definition (F12): query the server and open the target file — works
+  // across files, unlike Monaco's action which needs the model already loaded.
+  async function gotoDefinition() {
+    const ed = LUM.editor.activeEditor();
+    const buf = LUM.editor.activeBuffer();
+    if (!available || !root || !eligible(buf) || !ed) {
+      // Non-LSP language: fall back to Monaco's word-based reveal.
+      const a = ed && ed.getAction('editor.action.revealDefinition');
+      if (a) a.run();
+      return;
+    }
+    const pos = ed.getPosition();
+    const uri = uriOf(buf.path);
+    flush(uri, buf.model);
+    const res = await window.lumen.lspDefinition(root, uri,
+      { line: pos.lineNumber - 1, character: pos.column - 1 });
+    const locs = locsFromResult(res);
+    if (!locs.length) { LUM.app.toast('No definition found'); return; }
+    const loc = locs[0];
+    const targetPath = pathFromUri(loc.uri);
+    LUM.nav && LUM.nav.record();
+    await LUM.editor.openPath(targetPath);
+    const ed2 = LUM.editor.activeEditor();
+    if (ed2 && ed2.setPosition) {
+      const r = loc.range;
+      ed2.setPosition({ lineNumber: r.start.line + 1, column: r.start.character + 1 });
+      ed2.revealLineInCenter(r.start.line + 1);
+      ed2.focus();
+    }
   }
 
   async function init() {
@@ -145,5 +251,5 @@ LUM.lsp = (function () {
     }
   }
 
-  return { init, onFolderOpen, onOpen, onChange, get available() { return available; } };
+  return { init, onFolderOpen, onOpen, onChange, onClose, gotoDefinition, get available() { return available; } };
 })();

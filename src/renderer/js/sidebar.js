@@ -18,6 +18,21 @@ LUM.sidebar = (function () {
   let edit = null;
   // Last file/folder the user acted on (for palette-invoked commands).
   let contextPath = null;
+  // Monotonic render token: a newer render() cancels an in-flight older one so
+  // two concurrent expands can't interleave rows into the same live element.
+  let renderSeq = 0;
+
+  // Remap/prune `expanded` entries when a folder is renamed or deleted, so open
+  // descendants follow the rename and stale paths don't leak forever.
+  function remapExpanded(oldPath, newPath) {
+    const sep = window.lumen.sep;
+    for (const p of [...expanded]) {
+      if (p === oldPath || p.startsWith(oldPath + sep)) {
+        expanded.delete(p);
+        if (newPath != null) expanded.add(newPath + p.slice(oldPath.length));
+      }
+    }
+  }
 
   function setLabel(text) {
     document.getElementById('project-name').textContent = text;
@@ -64,6 +79,9 @@ LUM.sidebar = (function () {
     refreshLabel();
     await render();
     afterRootsChanged();
+    // Persist the change into the .sublime-project so a removed folder doesn't
+    // come back when the project is reopened.
+    if (LUM.project && LUM.project.onFoldersChanged) LUM.project.onFoldersChanged();
   }
 
   async function removeAllFolders() {
@@ -93,6 +111,7 @@ LUM.sidebar = (function () {
   }
 
   async function render() {
+    const gen = ++renderSeq;
     const treeEl = document.getElementById('file-tree');
     treeEl.innerHTML = '';
     if (!roots.length) {
@@ -107,14 +126,16 @@ LUM.sidebar = (function () {
       return;
     }
     if (roots.length === 1) {
-      await renderDir(roots[0], 0, treeEl);
+      await renderDir(roots[0], 0, treeEl, gen);
     } else {
       // multi-root: each folder is a collapsible group header.
       for (const r of roots) {
+        if (gen !== renderSeq) return; // a newer render superseded us
         renderRootHeader(r, treeEl);
-        if (expanded.has(r)) await renderDir(r, 1, treeEl);
+        if (expanded.has(r)) await renderDir(r, 1, treeEl, gen);
       }
     }
+    if (gen !== renderSeq) return;
     if (LUM.git) LUM.git.decorateSidebar();
     const pending = edit && document.querySelector('.tree-input');
     if (pending) pending.focus();
@@ -143,7 +164,7 @@ LUM.sidebar = (function () {
     container.appendChild(row);
   }
 
-  async function renderDir(dir, depth, container) {
+  async function renderDir(dir, depth, container, gen) {
     // A "create" input row shows at the top of its parent folder's contents.
     if (edit && edit.mode === 'create' && edit.dir === dir) {
       container.appendChild(makeInlineRow(depth, edit.isDir, ''));
@@ -154,10 +175,11 @@ LUM.sidebar = (function () {
     } catch {
       return;
     }
+    if (gen != null && gen !== renderSeq) return; // superseded during the await
     for (const e of list) {
       if (edit && edit.mode === 'rename' && edit.path === e.path) {
         container.appendChild(makeInlineRow(depth, e.isDir, e.name));
-        if (e.isDir && expanded.has(e.path)) await renderDir(e.path, depth + 1, container);
+        if (e.isDir && expanded.has(e.path)) await renderDir(e.path, depth + 1, container, gen);
         continue;
       }
       const row = document.createElement('div');
@@ -207,7 +229,7 @@ LUM.sidebar = (function () {
       container.appendChild(row);
 
       if (e.isDir && isOpen) {
-        await renderDir(e.path, depth + 1, container);
+        await renderDir(e.path, depth + 1, container, gen);
       }
     }
   }
@@ -229,14 +251,18 @@ LUM.sidebar = (function () {
     row.appendChild(input);
     row.appendChild(err);
 
-    let done = false;
-    const cancel = () => { if (done) return; done = true; edit = null; render(); };
+    let done = false, committing = false;
+    const cancel = () => { if (done || committing) return; done = true; edit = null; render(); };
     const commit = async () => {
-      if (done) return;
+      // `committing` guards the async validation window so Enter-then-blur can't
+      // run performInline twice (double writeFile / mkdir, or a second rename that
+      // throws because the path already moved).
+      if (done || committing) return;
+      committing = true;
       const name = input.value.trim();
       const validation = await validateInline(name);
-      if (validation) { err.textContent = validation; err.classList.add('show'); return; }
-      done = true;
+      if (validation) { committing = false; err.textContent = validation; err.classList.add('show'); return; }
+      done = true; committing = false;
       const target = edit;
       edit = null;
       await performInline(target, name);
@@ -290,10 +316,7 @@ LUM.sidebar = (function () {
         const dest = window.lumen.join(parent, name);
         if (dest === target.path) { await render(); return; }
         await window.lumen.rename(target.path, dest);
-        if (target.isDir && expanded.has(target.path)) {
-          expanded.delete(target.path);
-          expanded.add(dest);
-        }
+        if (target.isDir) remapExpanded(target.path, dest); // follow open descendants
         LUM.editor.applyPathChange(target.path, dest);
         cache.delete(parent);
         await render();
@@ -336,7 +359,7 @@ LUM.sidebar = (function () {
       await window.lumen.trash(path);
       LUM.editor.markPathDeleted(path);
       cache.delete(window.lumen.dirname(path));
-      expanded.delete(path);
+      remapExpanded(path, null); // prune the folder and all its open descendants
       await render();
       afterFsChange();
       LUM.app.toast('Moved to Trash: ' + name);

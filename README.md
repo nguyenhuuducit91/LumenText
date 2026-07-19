@@ -109,17 +109,21 @@ sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen (settings + s
 |---|---|---|---|
 | `Ctrl+F` | Find (bottom bar) | `Ctrl+H` | Replace |
 | `F3` / `Shift+F3` | Find Next / Previous | `Ctrl+I` | Incremental Find |
-| `Ctrl+E` | Use Selection for Find | `Ctrl+Shift+F` | Find in Files |
+| `Ctrl+F3` / `Ctrl+Shift+F3` | Find Under (word at caret) | `Ctrl+E` | Use Selection for Find |
+| `Ctrl+Shift+F` | Find in Files | `F4` / `Shift+F4` | Next / Prev Result |
 | `Enter` / `Shift+Enter` | Next / prev match (in Find box) | `Alt+Enter` | Find All (multi-cursor) |
+
+> The replace field interprets `\n`, `\t`, `\1`-style back-refs and `$1` groups.
 
 ### Navigation (Goto)
 | Shortcut | Action | Shortcut | Action |
 |---|---|---|---|
 | `Ctrl+P` | Goto Anything (file) | `Ctrl+Shift+P` | Command Palette |
-| `Ctrl+G` | Goto Line | `Ctrl+R` | Goto Symbol |
-| `Ctrl+Shift+R` | Goto Symbol in Project | `F12` | Goto Definition |
-| `Alt+← / →` | Jump Back / Forward | `Ctrl+M` | Jump to Matching Bracket |
-| `Ctrl+F2` | Toggle Bookmark | `F2` / `Shift+F2` | Next / Prev Bookmark |
+| `Ctrl+G` | Goto Line (`:line:col`) | `Ctrl+R` | Goto Symbol |
+| `Ctrl+;` | Goto Word in File | `Ctrl+Shift+R` | Goto Symbol in Project |
+| `F12` | Goto Definition (LSP, cross-file) | `Ctrl+M` | Jump to Matching Bracket |
+| `Alt+← / →` | Jump Back / Forward | `Ctrl+F2` | Toggle Bookmark |
+| `F2` / `Shift+F2` | Next / Prev Bookmark | `Ctrl+. / Ctrl+Shift+.` | Next / Prev Git Modification |
 
 ### View & tools
 | Shortcut | Action | Shortcut | Action |
@@ -128,8 +132,9 @@ sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen (settings + s
 | `Alt+Shift+1 / 2 / 3` | Layout 1 / 2 / 3 columns | `Shift+F11` | Distraction Free Mode |
 | `Ctrl+= / - / 0` | Font larger / smaller / reset | `Ctrl+,` | Settings |
 | `Ctrl+Shift+B` | Build System | `F7` | Re-run Last Build |
-| `Ctrl+Q` / `Ctrl+Shift+Q` | Record / Playback Macro | `Ctrl+Alt+P` | Quick Switch Project |
-| `Ctrl+Space` | Toggle Vietnamese input (fcitx) | | |
+| `Ctrl+Alt+Q` / `Ctrl+Alt+Shift+Q` | Record / Playback Macro | `Ctrl+Alt+P` | Quick Switch Project |
+| `Alt+1…9` | Select Tab by Index | `Ctrl+PageUp / PageDown` | Previous / Next Tab |
+| `Ctrl+Tab` | Cycle Tabs (most-recent) | `Ctrl+Space` | Toggle Vietnamese input (fcitx) |
 
 > Every command is searchable in the **Command Palette** (`Ctrl+Shift+P`), and keys are customizable in **Preferences → Key Bindings**.
 

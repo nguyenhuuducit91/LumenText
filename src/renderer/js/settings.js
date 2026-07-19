@@ -52,13 +52,17 @@ LUM.settings = (function () {
     current = s;
     LUM.state.minimap = !!s.minimap;
     const opts = editorOptions(s);
-    LUM.editor.panes.forEach((p) => p.editor.updateOptions(opts));
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions(opts));
     LUM.editor.buffers.forEach((b) => {
       if (b.model) b.model.updateOptions({ tabSize: s.tab_size, insertSpaces: s.translate_tabs_to_spaces });
     });
     if (s.theme) LUM.app.applyTheme(s.theme);
     if (s.font_family) document.documentElement.style.setProperty('--font-mono', s.font_family);
     LUM.autosave.configure(s.auto_save, s.auto_save_delay_ms);
+    // Re-assert the View > Show Symbol state, which lives in its own store and
+    // would otherwise be clobbered by this baseline (renderWhitespace / guides /
+    // wrap). Keeps whitespace markers from vanishing after any settings.set.
+    if (LUM.invisibles && LUM.invisibles.reapply) LUM.invisibles.reapply();
     if (LUM.editor.updateStatus) LUM.editor.updateStatus();
   }
 
@@ -121,23 +125,30 @@ LUM.settings = (function () {
     if (ed) ed.focus();
   }
 
-  function get(k) {
-    return current[k];
+  function get(k, fallback) {
+    const v = current[k];
+    return v === undefined ? fallback : v;
   }
 
   // Read-modify-write a single key in the user settings file, then re-apply.
-  async function set(key, value) {
-    await ensurePaths();
-    let user = {};
-    try {
-      const { content } = await window.lumen.readFile(userFile);
-      user = parseJsonc(content) || {};
-    } catch (e) {
-      user = {};
-    }
-    user[key] = value;
-    await window.lumen.writeFile(userFile, JSON.stringify(user, null, 2) + '\n');
-    await load();
+  // Serialised through a promise chain so two near-simultaneous set() calls for
+  // different keys don't read the same on-disk state and clobber each other.
+  let setQueue = Promise.resolve();
+  function set(key, value) {
+    setQueue = setQueue.then(async () => {
+      await ensurePaths();
+      let user = {};
+      try {
+        const { content } = await window.lumen.readFile(userFile);
+        user = parseJsonc(content) || {};
+      } catch (e) {
+        user = {};
+      }
+      user[key] = value;
+      await window.lumen.writeFile(userFile, JSON.stringify(user, null, 2) + '\n');
+      await load();
+    }).catch((e) => console.error('settings.set failed', e));
+    return setQueue;
   }
 
   return { DEFAULTS, editorOptions, apply, load, openUI, reloadIfSettingsFile, get, set,
