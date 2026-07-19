@@ -125,7 +125,7 @@ LUM.sidebar = (function () {
     row.className = 'tree-row root-row is-dir';
     const isOpen = expanded.has(dir);
     row.innerHTML =
-      `<span class="twisty">${isOpen ? '▾' : '▸'}</span>` +
+      `<span class="twisty">${isOpen ? '▼' : '▶'}</span>` +
       `<span class="tname">${escapeHtml(window.lumen.basename(dir).toUpperCase())}</span>`;
     row.dataset.path = dir;
     row.dataset.dir = '1';
@@ -164,7 +164,7 @@ LUM.sidebar = (function () {
       row.className = 'tree-row' + (e.isDir ? ' is-dir' : '');
       row.style.paddingLeft = 6 + depth * 14 + 'px';
       const isOpen = expanded.has(e.path);
-      const twisty = e.isDir ? (isOpen ? '▾' : '▸') : '';
+      const twisty = e.isDir ? (isOpen ? '▼' : '▶') : '';
       const ico = e.isDir ? LUM.icons.folder(isOpen) : LUM.icons.file(e.name);
       row.innerHTML =
         `<span class="twisty">${twisty}</span>` +
@@ -184,11 +184,20 @@ LUM.sidebar = (function () {
           else expanded.add(e.path);
           await render();
         } else {
-          await LUM.editor.openPath(e.path);
+          // Single click = transient preview tab (italic); double click below
+          // (or editing) promotes it to a permanent tab — Sublime Text style.
+          await LUM.editor.openPath(e.path, { preview: true });
           LUM.app && LUM.app.pushRecent && LUM.app.pushRecent(e.path, 'file');
           highlightActive();
         }
       });
+      if (!e.isDir) {
+        row.addEventListener('dblclick', async (ev) => {
+          ev.stopPropagation();
+          await LUM.editor.openPath(e.path); // permanent
+          highlightActive();
+        });
+      }
       row.addEventListener('contextmenu', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();

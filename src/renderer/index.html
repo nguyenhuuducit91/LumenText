@@ -64,6 +64,40 @@
           <pre class="output-body" id="output-body"></pre>
         </div>
       </div>
+
+      <!-- Single-file Find / Replace bar (Sublime-style, bottom of editor) -->
+      <div id="sfind" class="sfind hidden">
+        <div class="sfind-row">
+          <div class="sfind-toggles">
+            <button class="sfind-tg" data-flag="regex" title="Regular expression (Alt+R)">.*</button>
+            <button class="sfind-tg" data-flag="caseSensitive" title="Case sensitive (Alt+C)">Aa</button>
+            <button class="sfind-tg" data-flag="wholeWord" title="Whole word (Alt+W)">&#92;b</button>
+            <button class="sfind-tg" data-flag="wrap" title="Wrap around">&#8617;</button>
+            <button class="sfind-tg" data-flag="inSelection" title="In selection">&#8862;</button>
+            <button class="sfind-tg" data-flag="highlight" title="Highlight matches">&#9636;</button>
+          </div>
+          <input id="sfind-input" class="sfind-input" type="text" placeholder="Find" autocomplete="off" spellcheck="false" />
+          <span id="sfind-count" class="sfind-count"></span>
+          <div class="sfind-btns">
+            <button id="sfind-next" class="sfind-btn" title="Find Next (Enter / F3)">Find</button>
+            <button id="sfind-prev" class="sfind-btn" title="Find Previous (Shift+Enter / Shift+F3)">Find Prev</button>
+            <button id="sfind-all" class="sfind-btn" title="Find All (Alt+Enter)">Find All</button>
+            <button id="sfind-close" class="sfind-close" title="Close (Esc)">&#10005;</button>
+          </div>
+        </div>
+        <div class="sfind-row sfind-replace-row">
+          <div class="sfind-toggles">
+            <button class="sfind-tg" data-flag="preserveCase" title="Preserve case">AB</button>
+          </div>
+          <input id="sfind-replace" class="sfind-input" type="text" placeholder="Replace" autocomplete="off" spellcheck="false" />
+          <span class="sfind-count"></span>
+          <div class="sfind-btns">
+            <button id="sfind-rep" class="sfind-btn" title="Replace (Enter)">Replace</button>
+            <button id="sfind-repall" class="sfind-btn" title="Replace All">Replace All</button>
+          </div>
+        </div>
+      </div>
+
       <div id="statusbar" class="statusbar">
         <span id="status-left"></span>
         <span id="status-right">
@@ -107,6 +141,7 @@
   <script src="js/project.js"></script>
   <script src="js/palette.js"></script>
   <script src="js/findinfiles.js"></script>
+  <script src="js/find.js"></script>
   <script src="js/keymap.js"></script>
   <script src="js/git.js"></script>
   <script src="js/snippets.js"></script>

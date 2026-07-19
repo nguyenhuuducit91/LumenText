@@ -12,6 +12,8 @@ LUM.editor = (function () {
   const buffers = new Map();
   /** buffer display order for the tab bar */
   const order = [];
+  /** paths of recently closed files, for Reopen Closed File */
+  const closedStack = [];
 
   /** @type {{editor:any, host:HTMLElement, currentId:?number, viewState:Map<number,any>}[]} */
   const panes = [];
@@ -114,6 +116,7 @@ LUM.editor = (function () {
     model.onDidChangeContent(() => {
       if (!buf.dirty) {
         buf.dirty = true;
+        buf.preview = false; // editing a preview tab makes it permanent (Sublime)
         renderTabs();
       }
       if (LUM.autosave) LUM.autosave.notify(buf);
@@ -172,16 +175,28 @@ LUM.editor = (function () {
     return buf;
   }
 
-  async function openPath(filePath) {
+  // The single preview (italic) tab, if any — Sublime keeps at most one.
+  function currentPreviewId() {
+    for (const id of order) if (buffers.get(id).preview) return id;
+    return null;
+  }
+
+  // opts.preview: open as a transient preview tab (single click). A second
+  // open of the same file, or an explicit non-preview open, makes it permanent.
+  async function openPath(filePath, opts = {}) {
+    const preview = !!opts.preview;
     if (LUM.nav) LUM.nav.record(); // remember where we were before navigating
     // already open?
     for (const id of order) {
       const b = buffers.get(id);
       if (b.path === filePath) {
+        if (!preview && b.preview) { b.preview = false; renderTabs(); } // promote
         showBuffer(id);
         return b;
       }
     }
+    // A new preview replaces the existing preview tab, in its place.
+    const replaceId = preview ? currentPreviewId() : null;
     try {
       const st = await window.lumen.stat(filePath);
       if (st.exists && st.large) {
@@ -192,7 +207,17 @@ LUM.editor = (function () {
       const { content, mtimeMs } = await window.lumen.readFile(filePath);
       const name = window.lumen.basename(filePath);
       const buf = makeBuffer(name, content, detectLanguage(name), filePath, mtimeMs);
-      showBuffer(buf.id);
+      if (preview) buf.preview = true;
+      if (replaceId != null && replaceId !== buf.id) {
+        // Slot the new tab where the old preview was, then discard the old one.
+        const idx = order.indexOf(replaceId);
+        order.splice(order.indexOf(buf.id), 1);
+        order.splice(idx, 0, buf.id);
+        showBuffer(buf.id);
+        await closeBuffer(replaceId); // preview tabs are clean → no save prompt
+      } else {
+        showBuffer(buf.id);
+      }
       return buf;
     } catch (e) {
       LUM.app.toast('Cannot open: ' + filePath);
@@ -263,6 +288,12 @@ LUM.editor = (function () {
       });
       if (choice === 'cancel') return;
       if (choice === 'save') { await saveBuffer(buf); if (buf.dirty) return; } // save-as cancelled
+    }
+
+    // remember path-backed closes so they can be reopened (Ctrl+Shift+T)
+    if (buf.path && !buf.preview) {
+      closedStack.push(buf.path);
+      if (closedStack.length > 50) closedStack.shift();
     }
 
     // pick which tab becomes active in any pane that was showing this one
@@ -369,10 +400,9 @@ LUM.editor = (function () {
         (b.pinned ? ' pinned' : '') + (b.preview ? ' preview' : '') + (gitCls ? ' ' + gitCls : '');
       el.title = (b.path || b.name) + (b.dirty ? '  •  Modified' : '');
       el.draggable = true;
-      const ico = LUM.icons ? LUM.icons.file(b.name) : '';
+      // Sublime Text shows only the filename in the tab (no file-type icon).
       const name = labels.get(id) || b.name;
       el.innerHTML =
-        `<span class="tab-ico">${ico}</span>` +
         `<span class="tab-name">${escapeHtml(name)}</span>` +
         `<span class="tab-close" title="Close">✕</span>`;
       el.addEventListener('mousedown', (e) => {
@@ -383,6 +413,12 @@ LUM.editor = (function () {
       el.querySelector('.tab-close').addEventListener('click', (e) => {
         e.stopPropagation();
         closeBuffer(id);
+      });
+      // Double-clicking a preview (italic) tab makes it permanent, like Sublime.
+      el.addEventListener('dblclick', (e) => {
+        if (e.target.classList.contains('tab-close')) return;
+        const b = buffers.get(id);
+        if (b && b.preview) { b.preview = false; renderTabs(); }
       });
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -425,6 +461,20 @@ LUM.editor = (function () {
       });
       bar.appendChild(el);
     }
+    // Let the mouse wheel scroll the tab strip horizontally (attach once), so a
+    // full row of tabs can be scrolled instead of squeezing the names — Sublime.
+    if (!bar.dataset.wheelBound) {
+      bar.dataset.wheelBound = '1';
+      bar.addEventListener('wheel', (e) => {
+        if (e.deltaX !== 0) return; // trackpads already scroll horizontally
+        if (bar.scrollWidth <= bar.clientWidth) return;
+        e.preventDefault();
+        bar.scrollLeft += (e.deltaY || 0);
+      }, { passive: false });
+    }
+    // Keep the active tab visible when tabs overflow.
+    const activeEl = bar.querySelector('.tab.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     if (LUM.app && LUM.app.saveSessionSoon) LUM.app.saveSessionSoon();
   }
 
@@ -464,9 +514,72 @@ LUM.editor = (function () {
   function setEOL(kind) {
     const buf = activeBuffer();
     if (!buf || !buf.model) return;
-    buf.model.setEOL(kind === 'CRLF' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF);
+    // Monaco models only carry LF or CRLF; CR (classic Mac) is normalised to LF.
+    const seq = kind === 'CRLF' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF;
+    buf.model.setEOL(seq);
     updateStatus();
     LUM.app.toast('Line endings: ' + kind);
+  }
+
+  // Set the syntax (language) of the active buffer — powers the View > Syntax menu.
+  function setLanguage(langId) {
+    if (!langId) return;
+    const buf = activeBuffer();
+    if (!buf || !buf.model) return;
+    monaco.editor.setModelLanguage(buf.model, langId);
+    buf.language = langId;
+    updateStatus();
+    if (LUM.lsp) LUM.lsp.onOpen(buf);
+    LUM.app.toast('Syntax: ' + languageLabel(langId));
+  }
+
+  // Indentation controls for the View > Indentation menu.
+  function setTabWidth(n) {
+    if (!n) return;
+    const buf = activeBuffer();
+    if (!buf || !buf.model) return;
+    buf.model.updateOptions({ tabSize: n });
+    updateStatus();
+    LUM.app.toast('Tab width: ' + n);
+  }
+  function toggleInsertSpaces() {
+    const buf = activeBuffer();
+    if (!buf || !buf.model) return;
+    const cur = buf.model.getOptions().insertSpaces;
+    buf.model.updateOptions({ insertSpaces: !cur });
+    updateStatus();
+    LUM.app.toast(!cur ? 'Indent using spaces' : 'Indent using tabs');
+  }
+
+  // Reload the active buffer from disk, discarding unsaved changes.
+  async function revertActive() {
+    const buf = activeBuffer();
+    if (!buf || !buf.path || buf.kind !== 'text') return;
+    try {
+      const { content, mtimeMs } = await window.lumen.readFile(buf.path);
+      const ed = activeEditor();
+      const vs = ed && ed.saveViewState();
+      buf.model.setValue(content);
+      buf.mtimeMs = mtimeMs;
+      buf.dirty = false;
+      if (ed && vs) ed.restoreViewState(vs);
+      renderTabs();
+      updateStatus();
+      LUM.app.toast('Reverted ' + buf.name);
+    } catch (e) {
+      LUM.app.toast('Cannot revert: ' + buf.name);
+    }
+  }
+
+  // Reopen the most recently closed path-backed file (Sublime's Ctrl+Shift+T).
+  async function reopenClosed() {
+    while (closedStack.length) {
+      const p = closedStack.pop();
+      if (order.some((id) => buffers.get(id).path === p)) continue; // already reopened
+      const exists = await window.lumen.stat(p).then((s) => s.exists).catch(() => false);
+      if (exists) return openPath(p);
+    }
+    LUM.app.toast('No recently closed files');
   }
 
   function languageLabel(id) {
@@ -524,6 +637,7 @@ LUM.editor = (function () {
     closeOthers, closeToRight, closeSaved, closeAll,
     applyPathChange, markPathDeleted,
     showBuffer, makeLargeBuffer, renderTabs, updateStatus, detectLanguage, setEOL,
+    setLanguage, setTabWidth, toggleInsertSpaces, revertActive, reopenClosed,
     setLayout, layout, setTheme, languageLabel
   };
 })();

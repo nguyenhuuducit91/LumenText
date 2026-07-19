@@ -124,20 +124,83 @@ function recentProjectsSubmenu() {
   return items;
 }
 
-// View > Show Symbol — checkbox items reflecting the persisted invisibles state.
+// View > Show Symbol — checkbox items mirroring Notepad++'s submenu, reflecting
+// the persisted invisibles state.
 function showSymbolSubmenu() {
   const inv = (store && store.get('invisibles', {})) || {};
-  const item = (key, label, cmd) => ({
-    label, type: 'checkbox', checked: !!inv[key], click: () => send(cmd)
+  const item = (checked, label, cmd) => ({
+    label, type: 'checkbox', checked: !!checked, click: () => send(cmd)
   });
+  // "Show All Characters" is the union of Space/Tab + End of Line + control chars.
+  const allOn = !!(inv.whitespace && inv.eol && inv.control);
   return [
-    item('whitespace', 'Show Space and Tab', 'view.showWhitespace'),
-    item('eol', 'Show End of Line', 'view.showEol'),
-    item('control', 'Show Non Printing Character', 'view.showControl'),
-    item('unicode', 'Show Control Character and Unicode EOL', 'view.showUnicode'),
+    item(inv.whitespace, 'Show Space and Tab', 'view.showWhitespace'),
+    item(inv.eol, 'Show End of Line', 'view.showEol'),
+    item(allOn, 'Show All Characters', 'view.showAllChars'),
     { type: 'separator' },
-    item('guides', 'Show Indent Guide', 'view.showIndentGuides'),
-    item('wrap', 'Show Wrap Symbol', 'view.showWrapSymbol')
+    item(inv.guides, 'Show Indent Guide', 'view.showIndentGuides'),
+    item(inv.wrap, 'Show Wrap Symbol', 'view.showWrapSymbol')
+  ];
+}
+
+// View > Syntax — a curated list of common languages (full list via the picker).
+function syntaxSubmenu() {
+  const LANGS = [
+    ['plaintext', 'Plain Text'], ['javascript', 'JavaScript'], ['typescript', 'TypeScript'],
+    ['json', 'JSON'], ['html', 'HTML'], ['css', 'CSS'], ['scss', 'SCSS'],
+    ['markdown', 'Markdown'], ['python', 'Python'], ['rust', 'Rust'], ['go', 'Go'],
+    ['c', 'C'], ['cpp', 'C++'], ['java', 'Java'], ['csharp', 'C#'], ['php', 'PHP'],
+    ['ruby', 'Ruby'], ['shell', 'Shell Script'], ['yaml', 'YAML'], ['xml', 'XML'],
+    ['sql', 'SQL'], ['dockerfile', 'Dockerfile']
+  ];
+  const items = LANGS.map(([id, label]) => ({ label, click: () => send('lang.setTo', id) }));
+  items.push({ type: 'separator' });
+  items.push({ label: 'More Syntaxes…', click: () => send('lang.set') });
+  return items;
+}
+
+// View / File > Line Endings.
+function lineEndingSubmenu() {
+  return [
+    { label: 'Windows (CRLF)', click: () => send('file.convertCRLF') },
+    { label: 'Unix (LF)', click: () => send('file.convertLF') },
+    { label: 'Mac OS 9 (CR)', click: () => send('file.convertCR') }
+  ];
+}
+
+// View > Indentation.
+function indentationSubmenu() {
+  const widths = [1, 2, 3, 4, 8].map((n) => ({
+    label: 'Tab Width: ' + n, click: () => send('edit.setTabWidth', n)
+  }));
+  return [
+    { label: 'Indent Using Spaces', click: () => send('edit.toggleSpaces') },
+    { type: 'separator' },
+    ...widths,
+    { type: 'separator' },
+    { label: 'Guess Settings From Buffer', click: () => send('edit.detectIndent') },
+    { label: 'Convert Indentation to Spaces', click: () => send('edit.toSpaces') },
+    { label: 'Convert Indentation to Tabs', click: () => send('edit.toTabs') }
+  ];
+}
+
+// View / Preferences > Font.  Pass accel=false on the second copy so the same
+// accelerator is not registered twice (Electron ignores duplicate accelerators).
+function fontSubmenu(accel = true) {
+  return [
+    { label: 'Larger', accelerator: accel ? 'CmdOrCtrl+=' : undefined, click: () => send('view.fontLarger') },
+    { label: 'Smaller', accelerator: accel ? 'CmdOrCtrl+-' : undefined, click: () => send('view.fontSmaller') },
+    { label: 'Reset', accelerator: accel ? 'CmdOrCtrl+0' : undefined, click: () => send('view.fontReset') }
+  ];
+}
+
+// View > Side Bar — visibility toggles for the main UI chrome.
+function sideBarSubmenu() {
+  return [
+    { label: 'Toggle Side Bar', accelerator: 'CmdOrCtrl+B', click: () => send('view.toggleSidebar') },
+    { label: 'Toggle Tabs', click: () => send('view.toggleTabs') },
+    { label: 'Toggle Minimap', click: () => send('view.toggleMinimap') },
+    { label: 'Toggle Status Bar', click: () => send('view.toggleStatusBar') }
   ];
 }
 
@@ -151,16 +214,20 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Open File…', accelerator: 'CmdOrCtrl+O', click: () => send('file.open') },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('file.openFolder') },
-        { label: 'Open Recent…', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('file.openRecent') },
-        { type: 'separator' },
-        { label: 'Open Project…', click: () => send('project.open') },
-        { label: 'Save Project As…', click: () => send('project.save') },
+        { label: 'Open Recent…', click: () => send('file.openRecent') },
+        { label: 'Reopen Closed File', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('file.reopenClosed') },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('file.save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file.saveAs') },
         { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: () => send('file.saveAll') },
+        { label: 'Revert File', click: () => send('file.revert') },
         { type: 'separator' },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('file.closeTab') },
+        { label: 'Line Endings', submenu: lineEndingSubmenu() },
+        { type: 'separator' },
+        { label: 'Close File', accelerator: 'CmdOrCtrl+W', click: () => send('file.closeTab') },
+        { label: 'Close All Files', click: () => send('tab.closeAll') },
+        { label: 'Close Window', accelerator: 'CmdOrCtrl+Shift+W', click: () => send('file.closeWindow') },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     },
@@ -169,33 +236,52 @@ function buildMenu() {
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
+        {
+          label: 'Undo Selection',
+          submenu: [
+            { label: 'Soft Undo', accelerator: 'CmdOrCtrl+U', click: () => send('edit.softUndo') },
+            { label: 'Soft Redo', accelerator: 'CmdOrCtrl+Shift+U', click: () => send('edit.softRedo') }
+          ]
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
-        { role: 'selectAll' },
+        { label: 'Paste and Indent', accelerator: 'CmdOrCtrl+Shift+V', click: () => send('edit.pasteAndIndent') },
         { type: 'separator' },
         {
           label: 'Line',
           submenu: [
-            { label: 'Move Line Up', accelerator: 'CmdOrCtrl+Shift+Up', click: () => send('edit.moveLineUp') },
-            { label: 'Move Line Down', accelerator: 'CmdOrCtrl+Shift+Down', click: () => send('edit.moveLineDown') },
+            { label: 'Indent', accelerator: 'CmdOrCtrl+]', click: () => send('edit.indent') },
+            { label: 'Unindent', accelerator: 'CmdOrCtrl+[', click: () => send('edit.outdent') },
+            { label: 'Reindent Lines', click: () => send('edit.reindent') },
+            { type: 'separator' },
+            { label: 'Swap Line Up', accelerator: 'CmdOrCtrl+Shift+Up', click: () => send('edit.moveLineUp') },
+            { label: 'Swap Line Down', accelerator: 'CmdOrCtrl+Shift+Down', click: () => send('edit.moveLineDown') },
             { label: 'Duplicate Line', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('edit.duplicateLine') },
             { label: 'Delete Line', accelerator: 'CmdOrCtrl+Shift+K', click: () => send('edit.deleteLine') },
-            { label: 'Join Lines', accelerator: 'CmdOrCtrl+J', click: () => send('edit.joinLines') },
-            { type: 'separator' },
-            { label: 'Indent', accelerator: 'CmdOrCtrl+]', click: () => send('edit.indent') },
-            { label: 'Outdent', accelerator: 'CmdOrCtrl+[', click: () => send('edit.outdent') },
-            { type: 'separator' },
-            { label: 'Sort Lines Ascending', accelerator: 'F9', click: () => send('edit.sortAsc') },
-            { label: 'Sort Lines Descending', accelerator: 'CmdOrCtrl+F9', click: () => send('edit.sortDesc') }
+            { label: 'Join Lines', accelerator: 'CmdOrCtrl+J', click: () => send('edit.joinLines') }
           ]
         },
         {
           label: 'Comment',
           submenu: [
-            { label: 'Toggle Line Comment', accelerator: 'CmdOrCtrl+/', click: () => send('edit.commentLine') },
+            { label: 'Toggle Comment', accelerator: 'CmdOrCtrl+/', click: () => send('edit.commentLine') },
             { label: 'Toggle Block Comment', accelerator: 'CmdOrCtrl+Shift+/', click: () => send('edit.blockComment') }
+          ]
+        },
+        {
+          label: 'Text',
+          submenu: [
+            { label: 'Insert Line Before', accelerator: 'CmdOrCtrl+Shift+Enter', click: () => send('edit.insertLineBefore') },
+            { label: 'Insert Line After', accelerator: 'CmdOrCtrl+Enter', click: () => send('edit.insertLineAfter') },
+            { type: 'separator' },
+            { label: 'Delete Word Forward', click: () => send('edit.deleteWordForward') },
+            { label: 'Delete Word Backward', click: () => send('edit.deleteWordBackward') },
+            { label: 'Delete to End of Line', click: () => send('edit.deleteToEOL') },
+            { label: 'Delete to Beginning of Line', click: () => send('edit.deleteToBOL') },
+            { type: 'separator' },
+            { label: 'Transpose', click: () => send('edit.transpose') }
           ]
         },
         {
@@ -204,9 +290,58 @@ function buildMenu() {
             { label: 'Upper Case  (Ctrl+K Ctrl+U)', click: () => send('edit.upperCase') },
             { label: 'Lower Case  (Ctrl+K Ctrl+L)', click: () => send('edit.lowerCase') },
             { label: 'Title Case', click: () => send('edit.titleCase') },
-            { label: 'Transpose', click: () => send('edit.transpose') }
+            { label: 'Swap Case', click: () => send('edit.swapCase') },
+            { type: 'separator' },
+            { label: 'lowerCamelCase', click: () => send('edit.camelLower') },
+            { label: 'UpperCamelCase', click: () => send('edit.camelUpper') },
+            { label: 'snake_case', click: () => send('edit.snake') },
+            { label: 'kebab-case', click: () => send('edit.kebab') }
           ]
         },
+        {
+          label: 'Wrap',
+          submenu: [
+            { label: 'Wrap Paragraph at Ruler', click: () => send('edit.wrapParagraph') }
+          ]
+        },
+        {
+          label: 'Code Folding',
+          submenu: [
+            { label: 'Fold', accelerator: 'CmdOrCtrl+Shift+[', click: () => send('edit.fold') },
+            { label: 'Unfold', accelerator: 'CmdOrCtrl+Shift+]', click: () => send('edit.unfold') },
+            { label: 'Fold All', click: () => send('edit.foldAll') },
+            { label: 'Unfold All', accelerator: 'CmdOrCtrl+K CmdOrCtrl+0', click: () => send('edit.unfoldAll') },
+            { type: 'separator' },
+            { label: 'Fold Level 2', click: () => send('edit.foldLevel2') },
+            { label: 'Fold Level 3', click: () => send('edit.foldLevel3') },
+            { label: 'Fold Level 4', click: () => send('edit.foldLevel4') },
+            { label: 'Fold Level 5', click: () => send('edit.foldLevel5') },
+            { label: 'Fold Level 6', click: () => send('edit.foldLevel6') },
+            { label: 'Fold Level 7', click: () => send('edit.foldLevel7') }
+          ]
+        },
+        { type: 'separator' },
+        { label: 'Sort Lines', accelerator: 'F9', click: () => send('edit.sortAsc') },
+        { label: 'Sort Lines (Case Sensitive)', accelerator: 'CmdOrCtrl+F9', click: () => send('edit.sortDesc') },
+        {
+          label: 'Permute Lines',
+          submenu: [
+            { label: 'Reverse', click: () => send('edit.permuteReverse') },
+            { label: 'Unique', click: () => send('edit.permuteUnique') },
+            { label: 'Shuffle', click: () => send('edit.permuteShuffle') }
+          ]
+        },
+        {
+          label: 'Permute Selections',
+          submenu: [
+            { label: 'Sort', click: () => send('sel.permuteSort') },
+            { label: 'Sort (Case Sensitive)', click: () => send('sel.permuteSortCS') },
+            { label: 'Reverse', click: () => send('sel.permuteReverse') },
+            { label: 'Unique', click: () => send('sel.permuteUnique') },
+            { label: 'Shuffle', click: () => send('sel.permuteShuffle') }
+          ]
+        },
+        { label: 'Trim Trailing White Space', click: () => send('edit.trimTrailing') },
         { type: 'separator' },
         { label: 'Format Document', accelerator: 'CmdOrCtrl+Alt+F', click: () => send('edit.format') }
       ]
@@ -214,38 +349,81 @@ function buildMenu() {
     {
       label: 'Selection',
       submenu: [
-        { label: 'Add Cursor: Next Occurrence', accelerator: 'CmdOrCtrl+D', click: () => send('edit.selectNext') },
-        { label: 'Select All Occurrences', accelerator: 'Alt+F3', click: () => send('sel.selectAllOcc') },
-        { label: 'Split Into Lines', accelerator: 'CmdOrCtrl+Shift+L', click: () => send('sel.splitLines') },
+        { label: 'Split into Lines', accelerator: 'CmdOrCtrl+Shift+L', click: () => send('sel.splitLines') },
+        { label: 'Add Previous Line', accelerator: 'Alt+Shift+Up', click: () => send('sel.addCursorUp') },
+        { label: 'Add Next Line', accelerator: 'Alt+Shift+Down', click: () => send('sel.addCursorDown') },
+        { label: 'Single Selection', click: () => send('sel.single') },
+        { label: 'Invert Selection', click: () => send('sel.invert') },
         { type: 'separator' },
+        { role: 'selectAll' },
         { label: 'Expand Selection', accelerator: 'Shift+Alt+Right', click: () => send('sel.expand') },
-        { label: 'Shrink Selection', accelerator: 'Shift+Alt+Left', click: () => send('sel.shrink') }
+        { label: 'Shrink Selection', accelerator: 'Shift+Alt+Left', click: () => send('sel.shrink') },
+        { label: 'Expand Selection to Line', accelerator: 'CmdOrCtrl+L', click: () => send('sel.expandToLine') },
+        { label: 'Expand Selection to Brackets', accelerator: 'CmdOrCtrl+Shift+M', click: () => send('sel.expandToBrackets') },
+        { label: 'Expand Selection to Scope', click: () => send('sel.expandToScope') },
+        { type: 'separator' },
+        { label: 'Add Next Occurrence', accelerator: 'CmdOrCtrl+D', click: () => send('edit.selectNext') },
+        { label: 'Select All Occurrences', accelerator: 'Alt+F3', click: () => send('sel.selectAllOcc') }
       ]
     },
     {
       label: 'Find',
       submenu: [
         { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => send('edit.find') },
-        { label: 'Replace…', accelerator: 'CmdOrCtrl+H', click: () => send('edit.replace') },
         { label: 'Find Next', accelerator: 'F3', click: () => send('edit.findNext') },
         { label: 'Find Previous', accelerator: 'Shift+F3', click: () => send('edit.findPrev') },
         { label: 'Incremental Find', accelerator: 'CmdOrCtrl+I', click: () => send('edit.incrementalFind') },
         { type: 'separator' },
+        { label: 'Replace…', accelerator: 'CmdOrCtrl+H', click: () => send('edit.replace') },
+        { type: 'separator' },
+        { label: 'Use Selection for Find', accelerator: 'CmdOrCtrl+E', click: () => send('find.useSelection') },
+        { type: 'separator' },
         { label: 'Find in Files…', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('find.inFiles') }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Side Bar', submenu: sideBarSubmenu() },
+        { label: 'Show Symbol', submenu: showSymbolSubmenu() },
+        { type: 'separator' },
+        { label: 'Enter Distraction Free Mode', accelerator: 'Shift+F11', click: () => send('view.zen') },
+        {
+          label: 'Layout',
+          submenu: [
+            { label: 'Single', accelerator: 'Alt+Shift+1', click: () => send('view.split1') },
+            { label: 'Columns: 2', accelerator: 'Alt+Shift+2', click: () => send('view.split2') },
+            { label: 'Columns: 3', accelerator: 'Alt+Shift+3', click: () => send('view.split3') }
+          ]
+        },
+        { type: 'separator' },
+        { label: 'Syntax', submenu: syntaxSubmenu() },
+        { label: 'Indentation', submenu: indentationSubmenu() },
+        { label: 'Line Endings', submenu: lineEndingSubmenu() },
+        { type: 'separator' },
+        { label: 'Word Wrap', accelerator: 'Alt+Z', click: () => send('view.wordWrap') },
+        { label: 'Toggle Rulers (80 / 120)', click: () => send('view.rulers') },
+        { label: 'Font', submenu: fontSubmenu(true) },
+        { type: 'separator' },
+        { label: 'Color Scheme…', click: () => send('view.theme') },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { role: 'toggleDevTools' }
       ]
     },
     {
       label: 'Goto',
       submenu: [
         { label: 'Goto Anything…', accelerator: 'CmdOrCtrl+P', click: () => send('goto.anything') },
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: () => send('goto.command') },
-        { label: 'Goto Line…', accelerator: 'CmdOrCtrl+G', click: () => send('goto.line') },
         { label: 'Goto Symbol…', accelerator: 'CmdOrCtrl+R', click: () => send('goto.symbol') },
         { label: 'Goto Symbol in Project…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('goto.projectSymbol') },
+        { label: 'Goto Definition', accelerator: 'F12', click: () => send('goto.definition') },
+        { label: 'Goto Line…', accelerator: 'CmdOrCtrl+G', click: () => send('goto.line') },
         { label: 'Goto Word in File… (#)', click: () => send('goto.word') },
         { type: 'separator' },
         { label: 'Jump Back', accelerator: 'Alt+Left', click: () => send('nav.back') },
         { label: 'Jump Forward', accelerator: 'Alt+Right', click: () => send('nav.forward') },
+        { label: 'Jump to Matching Bracket', accelerator: 'CmdOrCtrl+M', click: () => send('sel.jumpBracket') },
         { type: 'separator' },
         {
           label: 'Bookmarks',
@@ -261,6 +439,9 @@ function buildMenu() {
     {
       label: 'Tools',
       submenu: [
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: () => send('goto.command') },
+        { label: 'Snippets…', click: () => send('snippet.insert') },
+        { type: 'separator' },
         { label: 'Build System…', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('build.run') },
         { label: 'Re-run Last Build', accelerator: 'F7', click: () => send('build.rerun') },
         { label: 'Cancel Build', click: () => send('build.cancel') },
@@ -292,32 +473,18 @@ function buildMenu() {
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => send('prefs.settings') },
         { label: 'Key Bindings', click: () => send('prefs.keymap') },
         { label: 'Snippets', click: () => send('snippet.edit') },
+        { type: 'separator' },
         { label: 'Color Scheme…', click: () => send('view.theme') },
+        { label: 'Font', submenu: fontSubmenu(false) },
         { type: 'separator' },
-        { label: 'Auto Save: Off', click: () => send('prefs.autosave.off') },
-        { label: 'Auto Save: After Delay', click: () => send('prefs.autosave.delay') },
-        { label: 'Auto Save: On Focus Change', click: () => send('prefs.autosave.focus') }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('view.toggleSidebar') },
-        { label: 'Toggle Minimap', click: () => send('view.toggleMinimap') },
-        { label: 'Show Symbol', submenu: showSymbolSubmenu() },
-        { label: 'Distraction-Free Mode', accelerator: 'Shift+F11', click: () => send('view.zen') },
-        { label: 'Toggle Rulers (80 / 120)', click: () => send('view.rulers') },
-        { label: 'Split: Two Columns', accelerator: 'Alt+Shift+2', click: () => send('view.split2') },
-        { label: 'Split: Single', accelerator: 'Alt+Shift+1', click: () => send('view.split1') },
-        { type: 'separator' },
-        { label: 'Command Palette: Color Scheme', click: () => send('view.theme') },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'toggleDevTools' }
+        {
+          label: 'Auto Save',
+          submenu: [
+            { label: 'Off', click: () => send('prefs.autosave.off') },
+            { label: 'After Delay', click: () => send('prefs.autosave.delay') },
+            { label: 'On Focus Change', click: () => send('prefs.autosave.focus') }
+          ]
+        }
       ]
     },
     {
@@ -598,6 +765,8 @@ ipcMain.handle('config:writeDefault', async (_e, name, content) => {
 ipcMain.handle('state:get', (_e, key, fallback) => (store ? store.get(key, fallback) : fallback));
 ipcMain.handle('state:set', (_e, key, value) => {
   if (store) store.set(key, value);
+  // Keep the View > Show Symbol checkboxes in sync when toggled from anywhere.
+  if (key === 'invisibles') buildMenu();
   return true;
 });
 
@@ -666,6 +835,10 @@ ipcMain.handle('shell:showItem', (_e, target) => {
 
 ipcMain.handle('win:new', async (_e, openPath) => {
   createWindow(openPath);
+});
+ipcMain.handle('win:close', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.close();
 });
 
 // Recent projects: persisted in the store; drives the native Open Recent submenu.

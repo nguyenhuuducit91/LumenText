@@ -217,9 +217,13 @@ LUM.app = (function () {
     def('file.saveAll', 'Save All', 'File', 'Ctrl+Alt+S', () => E.saveAll());
     def('file.closeTab', 'Close Tab', 'File', 'Ctrl+W', () => E.closeBuffer());
     def('file.newWindow', 'New Window', 'File', 'Ctrl+Shift+N', () => window.lumen.newWindow());
-    def('file.openRecent', 'Open Recent…', 'File', 'Ctrl+Shift+T', openRecent);
+    def('file.openRecent', 'Open Recent…', 'File', '', openRecent);
+    def('file.reopenClosed', 'Reopen Closed File', 'File', 'Ctrl+Shift+T', () => E.reopenClosed());
+    def('file.closeWindow', 'Close Window', 'File', 'Ctrl+Shift+W', () => window.lumen.closeWindow());
+    def('file.revert', 'Revert File', 'File', '', () => E.revertActive());
     def('file.convertLF', 'Line Endings: Convert to LF (Unix)', 'File', '', () => E.setEOL('LF'));
     def('file.convertCRLF', 'Line Endings: Convert to CRLF (Windows)', 'File', '', () => E.setEOL('CRLF'));
+    def('file.convertCR', 'Line Endings: Convert to CR (Mac Classic)', 'File', '', () => E.setEOL('CR'));
 
     // Sidebar file operations (also reachable from the tree context menu).
     const S = LUM.sidebar;
@@ -251,12 +255,12 @@ LUM.app = (function () {
     def('nav.back', 'Jump Back', 'Goto', 'Alt+Left', () => LUM.nav.back());
     def('nav.forward', 'Jump Forward', 'Goto', 'Alt+Right', () => LUM.nav.forward());
 
-    // Find / Replace (in-file)
-    def('edit.find', 'Find', 'Find', 'Ctrl+F', () => triggerAction('actions.find'));
-    def('edit.replace', 'Replace', 'Find', 'Ctrl+H', () => triggerAction('editor.action.startFindReplaceAction'));
-    def('edit.findNext', 'Find Next', 'Find', 'F3', () => triggerAction('editor.action.nextMatchFindAction'));
-    def('edit.findPrev', 'Find Previous', 'Find', 'Shift+F3', () => triggerAction('editor.action.previousMatchFindAction'));
-    def('edit.incrementalFind', 'Incremental Find', 'Find', 'Ctrl+I', () => triggerAction('actions.find'));
+    // Find / Replace (in-file) — Sublime-style bottom bar (LUM.find)
+    def('edit.find', 'Find', 'Find', 'Ctrl+F', () => LUM.find.open(false));
+    def('edit.replace', 'Replace', 'Find', 'Ctrl+H', () => LUM.find.open(true));
+    def('edit.findNext', 'Find Next', 'Find', 'F3', () => LUM.find.next());
+    def('edit.findPrev', 'Find Previous', 'Find', 'Shift+F3', () => LUM.find.prev());
+    def('edit.incrementalFind', 'Incremental Find', 'Find', 'Ctrl+I', () => LUM.find.open(false));
     def('find.inFiles', 'Find in Files…', 'Find', 'Ctrl+Shift+F', () => LUM.findInFiles.open());
 
     // Multi-cursor / selection
@@ -292,6 +296,8 @@ LUM.app = (function () {
     def('edit.titleCase', 'Convert to Title Case', 'Edit', '', () => triggerAction('editor.action.transformToTitlecase'));
 
     def('edit.format', 'Format Document', 'Edit', 'Ctrl+Alt+F', () => triggerAction('editor.action.formatDocument'));
+    def('edit.fold', 'Fold', 'Edit', 'Ctrl+Shift+[', () => triggerAction('editor.fold'));
+    def('edit.unfold', 'Unfold', 'Edit', 'Ctrl+Shift+]', () => triggerAction('editor.unfold'));
     def('edit.foldAll', 'Fold All', 'Edit', '', () => triggerAction('editor.foldAll'));
     def('edit.unfoldAll', 'Unfold All', 'Edit', 'Ctrl+K Ctrl+0', () => triggerAction('editor.unfoldAll'));
 
@@ -336,6 +342,32 @@ LUM.app = (function () {
     def('sel.addCursorUp', 'Add Previous Line (cursor above)', 'Selection', 'Alt+Shift+Up', () => triggerAction('editor.action.insertCursorAbove'));
     def('sel.addCursorDown', 'Add Next Line (cursor below)', 'Selection', 'Alt+Shift+Down', () => triggerAction('editor.action.insertCursorBelow'));
     def('sel.jumpBracket', 'Jump to Matching Bracket', 'Selection', 'Ctrl+M', () => triggerAction('editor.action.jumpToBracket'));
+    def('sel.selectAll', 'Select All', 'Selection', 'Ctrl+A', () => triggerAction('editor.action.selectAll'));
+    def('sel.single', 'Single Selection', 'Selection', '', () => triggerAction('removeSecondaryCursors'));
+    def('sel.invert', 'Invert Selection', 'Selection', 'Ctrl+Shift+I', invertSelection);
+
+    // Text editing (Sublime's Edit > Text submenu)
+    def('edit.pasteAndIndent', 'Paste and Indent', 'Edit', 'Ctrl+Shift+V', pasteAndIndent);
+    def('edit.deleteWordForward', 'Delete Word Forward', 'Edit', '', () => triggerAction('deleteWordRight'));
+    def('edit.deleteWordBackward', 'Delete Word Backward', 'Edit', '', () => triggerAction('deleteWordLeft'));
+
+    // Find using current selection
+    def('find.useSelection', 'Use Selection for Find', 'Find', 'Ctrl+E', () => LUM.find.useSelection());
+
+    // Goto definition (LSP / Monaco)
+    def('goto.definition', 'Goto Definition', 'Goto', 'F12', () => triggerAction('editor.action.revealDefinition'));
+
+    // View: font size + UI element toggles
+    def('view.fontLarger', 'Font: Larger', 'View', 'Ctrl+=', () => bumpFont(1));
+    def('view.fontSmaller', 'Font: Smaller', 'View', 'Ctrl+-', () => bumpFont(-1));
+    def('view.fontReset', 'Font: Reset', 'View', 'Ctrl+0', () => setFontSize(LUM.settings.DEFAULTS.font_size));
+    def('view.toggleStatusBar', 'Toggle Status Bar', 'View', '', () => document.body.classList.toggle('hide-statusbar'));
+    def('view.toggleTabs', 'Toggle Tabs', 'View', '', () => { document.body.classList.toggle('hide-tabs'); setTimeout(() => LUM.editor.layout(), 0); });
+
+    // Parameterised commands driven by the native submenus (Syntax / Indentation)
+    def('lang.setTo', 'Set Syntax (to language)', 'Language', '', (langId) => LUM.editor.setLanguage(langId));
+    def('edit.setTabWidth', 'Indentation: Set Tab Width', 'Line', '', (n) => LUM.editor.setTabWidth(n));
+    def('edit.toggleSpaces', 'Indentation: Indent Using Spaces', 'Line', '', () => LUM.editor.toggleInsertSpaces());
 
     // Goto word in current file (# prefix in Goto Anything)
     def('goto.word', 'Goto Word in File… (#)', 'Goto', '', () => LUM.palette.open('word'));
@@ -351,8 +383,7 @@ LUM.app = (function () {
     // View > Show Symbol — render invisibles (Sublime draw_white_space family)
     def('view.showWhitespace', 'Show: Space and Tab', 'View', '', () => LUM.invisibles.toggle('whitespace'));
     def('view.showEol', 'Show: End of Line', 'View', '', () => LUM.invisibles.toggle('eol'));
-    def('view.showControl', 'Show: Non Printing Character', 'View', '', () => LUM.invisibles.toggle('control'));
-    def('view.showUnicode', 'Show: Control Character and Unicode EOL', 'View', '', () => LUM.invisibles.toggle('unicode'));
+    def('view.showAllChars', 'Show: All Characters', 'View', '', () => LUM.invisibles.toggle('all'));
     def('view.showIndentGuides', 'Show: Indent Guide', 'View', '', () => LUM.invisibles.toggle('guides'));
     def('view.showWrapSymbol', 'Show: Wrap Symbol', 'View', '', () => LUM.invisibles.toggle('wrap'));
 
@@ -485,6 +516,46 @@ LUM.app = (function () {
     if (!ed) return;
     const cur = ed.getOption(monaco.editor.EditorOption.wordWrap);
     ed.updateOptions({ wordWrap: cur === 'on' ? 'off' : 'on' });
+  }
+  function setFontSize(n) {
+    n = Math.max(6, Math.min(40, n));
+    LUM.settings.set('font_size', n);
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ fontSize: n }));
+    toast('Font size: ' + n);
+  }
+  function bumpFont(delta) {
+    setFontSize((LUM.settings.get('font_size', LUM.settings.DEFAULTS.font_size) || 13) + delta);
+  }
+  // Paste over the selection, then reindent the pasted lines (Sublime behaviour).
+  async function pasteAndIndent() {
+    const ed = LUM.editor.activeEditor();
+    if (!ed) return;
+    const paste = ed.getAction('editor.action.clipboardPasteAction');
+    if (paste) await paste.run();
+    const reindent = ed.getAction('editor.action.reindentselectedlines');
+    if (reindent) await reindent.run();
+  }
+  // Invert the selection: select everything that is currently NOT selected.
+  function invertSelection() {
+    const ed = LUM.editor.activeEditor();
+    const model = ed && ed.getModel();
+    if (!ed || !model) return;
+    const full = model.getFullModelRange();
+    const sels = ed.getSelections().slice().sort((a, b) =>
+      a.startLineNumber - b.startLineNumber || a.startColumn - b.startColumn);
+    const Sel = monaco.Selection;
+    const out = [];
+    let pos = { lineNumber: full.startLineNumber, column: full.startColumn };
+    for (const s of sels) {
+      if (pos.lineNumber < s.startLineNumber || (pos.lineNumber === s.startLineNumber && pos.column < s.startColumn)) {
+        out.push(new Sel(pos.lineNumber, pos.column, s.startLineNumber, s.startColumn));
+      }
+      pos = { lineNumber: s.endLineNumber, column: s.endColumn };
+    }
+    if (pos.lineNumber < full.endLineNumber || (pos.lineNumber === full.endLineNumber && pos.column < full.endColumn)) {
+      out.push(new Sel(pos.lineNumber, pos.column, full.endLineNumber, full.endColumn));
+    }
+    if (out.length) ed.setSelections(out);
   }
   function toggleZen() {
     document.body.classList.toggle('zen');
@@ -627,6 +698,11 @@ LUM.app = (function () {
       else if (ctrl && !e.shiftKey && k === 'o') { e.preventDefault(); LUM.commands.run('file.open'); }
       else if (ctrl && !e.shiftKey && k === 'w') { e.preventDefault(); LUM.commands.run('file.closeTab'); }
       else if (ctrl && e.shiftKey && k === 'f') { e.preventDefault(); LUM.commands.run('find.inFiles'); }
+      // Intercept find keys BEFORE Monaco so our bottom bar opens (not the popup).
+      // stopPropagation in the capture phase keeps the event from reaching Monaco.
+      else if (ctrl && !e.shiftKey && !e.altKey && k === 'f') { e.preventDefault(); e.stopPropagation(); LUM.find.open(false); }
+      else if (ctrl && !e.shiftKey && k === 'h') { e.preventDefault(); e.stopPropagation(); LUM.find.open(true); }
+      else if (!ctrl && !e.altKey && k === 'f3') { e.preventDefault(); e.stopPropagation(); e.shiftKey ? LUM.find.prev() : LUM.find.next(); }
     }, true);
   }
 
@@ -783,6 +859,7 @@ LUM.app = (function () {
     LUM.palette.init();
     LUM.largefile.init();
     LUM.findInFiles.init();
+    LUM.find.init();
     LUM.autosave.init();
     LUM.keymap.init();
     LUM.git.init();

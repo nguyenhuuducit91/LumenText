@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('lumen', {
 
   // windows
   newWindow: (openPath) => ipcRenderer.invoke('win:new', openPath),
+  closeWindow: () => ipcRenderer.invoke('win:close'),
 
   // recent projects (drives the native Project > Open Recent submenu)
   projectRecent: () => ipcRenderer.invoke('project:recent'),
