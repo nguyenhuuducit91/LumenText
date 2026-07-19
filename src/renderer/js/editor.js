@@ -12,7 +12,7 @@ LUM.editor = (function () {
   const buffers = new Map();
   /** buffer display order for the tab bar */
   const order = [];
-  /** paths of recently closed files, for Reopen Closed File */
+  /** recently closed files, for Reopen Closed File: {path, line, col, index} */
   const closedStack = [];
 
   /** @type {{editor:any, host:HTMLElement, currentId:?number, viewState:Map<number,any>}[]} */
@@ -109,10 +109,14 @@ LUM.editor = (function () {
   }
 
   // ---- buffers ------------------------------------------------------------
-  function makeBuffer(name, content, language, filePath, mtimeMs) {
+  // Human labels for the encodings the main process can emit (see src/main/encoding.js).
+  const ENC_LABELS = { utf8: 'UTF-8', utf8bom: 'UTF-8 BOM', utf16le: 'UTF-16 LE', utf16be: 'UTF-16 BE', latin1: 'Latin-1' };
+  function encLabel(enc) { return ENC_LABELS[enc] || 'UTF-8'; }
+
+  function makeBuffer(name, content, language, filePath, mtimeMs, encoding) {
     const id = bufferSeq++;
     const model = monaco.editor.createModel(content, language || detectLanguage(name));
-    const buf = { id, name, kind: 'text', path: filePath || null, model, dirty: false, mtimeMs: mtimeMs || null, language: model.getLanguageId() };
+    const buf = { id, name, kind: 'text', path: filePath || null, model, dirty: false, mtimeMs: mtimeMs || null, language: model.getLanguageId(), encoding: encoding || 'utf8' };
     model.onDidChangeContent(() => {
       if (!buf.dirty) {
         buf.dirty = true;
@@ -279,9 +283,9 @@ LUM.editor = (function () {
         if (replaceId != null && lb && replaceId !== lb.id) await closeBuffer(replaceId);
         return lb;
       }
-      const { content, mtimeMs } = await window.lumen.readFile(filePath);
+      const { content, mtimeMs, encoding } = await window.lumen.readFile(filePath);
       const name = window.lumen.basename(filePath);
-      const buf = makeBuffer(name, content, detectLanguage(name), filePath, mtimeMs);
+      const buf = makeBuffer(name, content, detectLanguage(name), filePath, mtimeMs, encoding);
       if (preview) buf.preview = true;
       if (replaceId != null && replaceId !== buf.id) {
         // Slot the new tab where the old preview was, then discard the old one.
@@ -304,7 +308,7 @@ LUM.editor = (function () {
     buf = buf || activeBuffer();
     if (!buf) return;
     if (!buf.path) return saveBufferAs(buf);
-    const { mtimeMs } = await window.lumen.writeFile(buf.path, buf.model.getValue());
+    const { mtimeMs } = await window.lumen.writeFile(buf.path, buf.model.getValue(), buf.encoding);
     buf.mtimeMs = mtimeMs;
     buf.dirty = false;
     renderTabs();
@@ -322,7 +326,7 @@ LUM.editor = (function () {
     const suggested = buf.path || (LUM.sidebar.root ? window.lumen.join(LUM.sidebar.root, buf.name) : buf.name);
     const target = await window.lumen.saveFileDialog(suggested);
     if (!target) return;
-    await window.lumen.writeFile(target, buf.model.getValue());
+    await window.lumen.writeFile(target, buf.model.getValue(), buf.encoding);
     buf.path = target;
     buf.name = window.lumen.basename(target);
     const lang = detectLanguage(buf.name);
@@ -365,11 +369,18 @@ LUM.editor = (function () {
       if (choice === 'save') { await saveBuffer(buf); if (buf.dirty) return; } // save-as cancelled
     }
 
-    // remember path-backed closes so they can be reopened (Ctrl+Shift+T)
+    // remember path-backed closes so they can be reopened (Ctrl+Shift+T) with
+    // their tab position and caret restored, not just re-opened at the end.
     if (buf.path && !buf.preview) {
-      const ix = closedStack.indexOf(buf.path);
-      if (ix !== -1) closedStack.splice(ix, 1); // dedupe: most-recent wins
-      closedStack.push(buf.path);
+      const dup = closedStack.findIndex((e) => e.path === buf.path);
+      if (dup !== -1) closedStack.splice(dup, 1); // dedupe: most-recent wins
+      const pos = cursorOf(id);
+      closedStack.push({
+        path: buf.path,
+        index: order.indexOf(id),
+        line: pos ? pos.lineNumber : null,
+        col: pos ? pos.column : null
+      });
       if (closedStack.length > 50) closedStack.shift();
     }
 
@@ -587,6 +598,8 @@ LUM.editor = (function () {
       return;
     }
     const eol = document.getElementById('status-eol');
+    const encEl = document.getElementById('status-enc');
+    if (encEl && buf) encEl.textContent = encLabel(buf.encoding);
     if (ed && ed.getPosition) {
       const p = ed.getPosition();
       const sel = ed.getSelections() || [];
@@ -644,7 +657,7 @@ LUM.editor = (function () {
     const buf = activeBuffer();
     if (!buf || !buf.path || buf.kind !== 'text') return;
     try {
-      const { content, mtimeMs } = await window.lumen.readFile(buf.path);
+      const { content, mtimeMs } = await window.lumen.readFile(buf.path, buf.encoding);
       const ed = activeEditor();
       const vs = ed && ed.saveViewState();
       buf.model.setValue(content);
@@ -659,13 +672,141 @@ LUM.editor = (function () {
     }
   }
 
-  // Reopen the most recently closed path-backed file (Sublime's Ctrl+Shift+T).
+  // The caret position of a buffer (from whichever pane shows it, or its saved
+  // view state) — captured at close time so Reopen can restore it.
+  function cursorOf(id) {
+    for (const p of panes) {
+      if (p.currentId === id && p.editor && p.editor.getPosition) return p.editor.getPosition();
+      const vs = p.viewState.get(id);
+      const cs = vs && vs.cursorState && vs.cursorState[0];
+      if (cs && cs.position) return cs.position;
+    }
+    return null;
+  }
+
+  // Reload a buffer's content from disk, preserving the caret/scroll of any pane
+  // showing it. onDidChangeContent flips dirty=true during setValue, so we clear
+  // it afterwards.
+  async function reloadFromDisk(b) {
+    try {
+      const { content, mtimeMs } = await window.lumen.readFile(b.path, b.encoding);
+      let ed = null, vs = null;
+      for (const p of panes) if (p.currentId === b.id) { ed = p.editor; vs = ed.saveViewState(); }
+      b.model.setValue(content);
+      b.mtimeMs = mtimeMs;
+      b.dirty = false;
+      b.deletedOnDisk = false;
+      if (ed && vs) ed.restoreViewState(vs);
+      renderTabs();
+      updateStatus();
+      LUM.app.toast('Reloaded (changed on disk): ' + b.name);
+    } catch { /* file vanished mid-reload; leave the buffer as-is */ }
+  }
+
+  // Detect files changed/deleted outside the app (called when the window regains
+  // focus). Clean buffers reload silently; dirty buffers prompt so edits are
+  // never silently lost or silently overwritten.
+  let checkingExternal = false;
+  async function checkExternalChanges() {
+    if (checkingExternal) return;
+    checkingExternal = true;
+    try {
+      for (const id of order.slice()) {
+        const b = buffers.get(id);
+        if (!b || !b.path || b.kind !== 'text') continue;
+        let st;
+        try { st = await window.lumen.stat(b.path); } catch { continue; }
+        if (!st.exists) {
+          if (!b.deletedOnDisk) { b.deletedOnDisk = true; b.dirty = true; renderTabs(); updateStatus(); }
+          continue;
+        }
+        if (b.deletedOnDisk) { b.deletedOnDisk = false; renderTabs(); }
+        if (b.mtimeMs == null || st.mtimeMs == null || st.mtimeMs <= b.mtimeMs) continue;
+        if (!b.dirty) {
+          await reloadFromDisk(b);
+        } else {
+          const choice = await LUM.dialog.confirm({
+            message: `"${b.name}" changed on disk.`,
+            detail: 'It also has unsaved changes here. Reload from disk (discarding your changes) or keep your version?',
+            buttons: [
+              { label: 'Reload', value: 'reload', kind: 'danger' },
+              { label: 'Keep Mine', value: 'keep' }
+            ],
+            default: 'keep',
+            cancel: 'keep'
+          });
+          if (choice === 'reload') await reloadFromDisk(b);
+          else b.mtimeMs = st.mtimeMs; // accept the disk mtime so we stop re-prompting
+        }
+      }
+    } finally {
+      checkingExternal = false;
+    }
+  }
+
+  // The encodings offered in the Reopen/Save-with-Encoding pickers.
+  function encodings() { return Object.keys(ENC_LABELS).map((id) => ({ id, label: ENC_LABELS[id] })); }
+
+  // Re-read the active file, forcing a specific encoding (fixes a mis-detected
+  // file — e.g. a Latin-1 file read as UTF-8). Discards unsaved changes.
+  async function reopenWithEncoding(enc) {
+    const buf = activeBuffer();
+    if (!buf || !buf.path || buf.kind !== 'text') return;
+    try {
+      const { content, mtimeMs } = await window.lumen.readFile(buf.path, enc);
+      const ed = activeEditor();
+      const vs = ed && ed.saveViewState();
+      buf.model.setValue(content);
+      buf.encoding = enc;
+      buf.mtimeMs = mtimeMs;
+      buf.dirty = false;
+      if (ed && vs) ed.restoreViewState(vs);
+      renderTabs();
+      updateStatus();
+      LUM.app.toast('Reopened as ' + encLabel(enc));
+    } catch (e) {
+      LUM.app.toast('Cannot reopen: ' + buf.name);
+    }
+  }
+
+  // Set the active buffer's encoding and write it out with that encoding.
+  async function saveWithEncoding(enc) {
+    const buf = activeBuffer();
+    if (!buf || buf.kind !== 'text') return;
+    buf.encoding = enc;
+    await saveBuffer(buf); // saveBuffer/saveBufferAs write with buf.encoding
+    updateStatus();
+  }
+
+  // Reopen the most recently closed path-backed file (Sublime's Ctrl+Shift+T),
+  // restoring its tab position within the strip and the caret line/column.
   async function reopenClosed() {
     while (closedStack.length) {
-      const p = closedStack.pop();
-      if (order.some((id) => buffers.get(id).path === p)) continue; // already reopened
-      const exists = await window.lumen.stat(p).then((s) => s.exists).catch(() => false);
-      if (exists) return openPath(p);
+      const info = closedStack.pop();
+      if (order.some((id) => buffers.get(id).path === info.path)) continue; // already reopened
+      const exists = await window.lumen.stat(info.path).then((s) => s.exists).catch(() => false);
+      if (!exists) continue;
+      const buf = await openPath(info.path);
+      if (!buf) continue;
+      // put the tab back where it was in the strip
+      if (info.index != null) {
+        const cur = order.indexOf(buf.id);
+        if (cur !== -1) {
+          order.splice(cur, 1);
+          order.splice(Math.min(info.index, order.length), 0, buf.id);
+          renderTabs();
+        }
+      }
+      // restore the caret
+      if (info.line && buf.kind === 'text') {
+        const ed = activeEditor();
+        if (ed && ed.setPosition) {
+          ed.setPosition({ lineNumber: info.line, column: info.col || 1 });
+          ed.revealLineInCenter(info.line);
+          ed.focus();
+        }
+      }
+      return buf;
     }
     LUM.app.toast('No recently closed files');
   }
@@ -727,6 +868,7 @@ LUM.editor = (function () {
     showBuffer, makeLargeBuffer, renderTabs, updateStatus, detectLanguage, setEOL,
     setLanguage, setTabWidth, toggleInsertSpaces, revertActive, reopenClosed,
     setLayout, layout, setTheme, languageLabel,
-    mruCycle, stepTab, selectTabByIndex
+    mruCycle, stepTab, selectTabByIndex,
+    encodings, reopenWithEncoding, saveWithEncoding, checkExternalChanges
   };
 })();

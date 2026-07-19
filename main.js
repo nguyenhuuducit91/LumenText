@@ -10,6 +10,7 @@ const { Store } = require('./src/main/store.js');
 const largefile = require('./src/main/largefile.js');
 const git = require('./src/main/git.js');
 const lsp = require('./src/main/lsp.js');
+const encoding = require('./src/main/encoding.js');
 
 const isDev = process.argv.includes('--dev');
 
@@ -222,6 +223,8 @@ function buildMenu() {
         { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: () => send('file.saveAll') },
         { label: 'Revert File', click: () => send('file.revert') },
         { type: 'separator' },
+        { label: 'Reopen with Encoding…', click: () => send('file.reopenEncoding') },
+        { label: 'Save with Encoding…', click: () => send('file.saveEncoding') },
         { label: 'Line Endings', submenu: lineEndingSubmenu() },
         { type: 'separator' },
         { label: 'Close File', accelerator: 'CmdOrCtrl+W', click: () => send('file.closeTab') },
@@ -538,14 +541,17 @@ ipcMain.handle('dialog:saveFile', async (_e, defaultPath) => {
   return res.canceled ? null : res.filePath;
 });
 
-ipcMain.handle('fs:read', async (_e, filePath) => {
-  const content = await fsp.readFile(filePath, 'utf8');
+ipcMain.handle('fs:read', async (_e, filePath, forcedEnc) => {
+  const buf = await fsp.readFile(filePath);
+  const enc = forcedEnc || encoding.detect(buf);
+  const content = encoding.decode(buf, enc);
   const stat = await fsp.stat(filePath);
-  return { content, mtimeMs: stat.mtimeMs };
+  return { content, mtimeMs: stat.mtimeMs, encoding: enc };
 });
 
-ipcMain.handle('fs:write', async (_e, filePath, content) => {
-  await fsp.writeFile(filePath, content, 'utf8');
+ipcMain.handle('fs:write', async (_e, filePath, content, enc) => {
+  // Preserve (or set) the file's encoding + BOM instead of always writing UTF-8.
+  await fsp.writeFile(filePath, encoding.encode(content, enc || 'utf8'));
   const stat = await fsp.stat(filePath);
   return { mtimeMs: stat.mtimeMs };
 });

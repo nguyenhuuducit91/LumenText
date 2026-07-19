@@ -221,6 +221,8 @@ LUM.app = (function () {
     def('file.reopenClosed', 'Reopen Closed File', 'File', 'Ctrl+Shift+T', () => E.reopenClosed());
     def('file.closeWindow', 'Close Window', 'File', 'Ctrl+Shift+W', () => window.lumen.closeWindow());
     def('file.revert', 'Revert File', 'File', '', () => E.revertActive());
+    def('file.reopenEncoding', 'Reopen with Encoding…', 'File', '', () => pickEncoding('reopen'));
+    def('file.saveEncoding', 'Save with Encoding…', 'File', '', () => pickEncoding('save'));
     def('file.convertLF', 'Line Endings: Convert to LF (Unix)', 'File', '', () => E.setEOL('LF'));
     def('file.convertCRLF', 'Line Endings: Convert to CRLF (Windows)', 'File', '', () => E.setEOL('CRLF'));
 
@@ -629,6 +631,18 @@ LUM.app = (function () {
       label: l.label,
       run: () => { monaco.editor.setModelLanguage(buf.model, l.id); buf.language = l.id; LUM.editor.updateStatus(); }
     })), 'Set Syntax');
+  }
+
+  // Reopen / Save with a chosen encoding (VS Code-style two-step).
+  function pickEncoding(mode) {
+    const buf = LUM.editor.activeBuffer();
+    if (!buf || buf.kind !== 'text') { toast('No text file active'); return; }
+    const verb = mode === 'reopen' ? 'Reopen as ' : 'Save as ';
+    const entries = LUM.editor.encodings().map((e) => ({
+      label: verb + e.label + (buf.encoding === e.id ? '  ✓' : ''),
+      run: () => mode === 'reopen' ? LUM.editor.reopenWithEncoding(e.id) : LUM.editor.saveWithEncoding(e.id)
+    }));
+    openPicker(entries, mode === 'reopen' ? 'Reopen with Encoding' : 'Save with Encoding');
   }
 
   // Generic picker reusing the palette overlay with an ad-hoc list.
@@ -1077,6 +1091,16 @@ LUM.app = (function () {
     // Clickable status items open the relevant quick panel (Sublime behaviour).
     document.getElementById('status-pos').addEventListener('click', () => LUM.commands.run('goto.line'));
     document.getElementById('status-lang').addEventListener('click', () => LUM.commands.run('lang.set'));
+    document.getElementById('status-enc').addEventListener('click', (e) => {
+      LUM.menu.show([
+        { label: 'Reopen with Encoding…', run: () => pickEncoding('reopen') },
+        { label: 'Save with Encoding…', run: () => pickEncoding('save') }
+      ], e.clientX, e.clientY);
+    });
+
+    // Detect files changed/deleted outside the app when the window regains focus,
+    // so external edits reload (clean) or prompt (dirty) instead of being lost.
+    window.addEventListener('focus', () => { if (LUM.editor.checkExternalChanges) LUM.editor.checkExternalChanges(); });
 
     // Persist session on quit as a last-chance safety net (in addition to the
     // debounced saves triggered by tab/folder changes).

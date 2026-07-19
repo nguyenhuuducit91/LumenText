@@ -34,7 +34,23 @@ replace hiểu `\n \t \1 $1` · fuzzy camelCase + basename-weight · Goto Anythi
 **Test thuần mới:** `test/linediff.test.js` (11), `test/replace.test.js` (6), `test/fuzzy.test.js` (7) — tổng **80 test pass**.
 Logic thuần tách vào `src/shared/{linediff,replace,fuzzy}.js`.
 
-**Còn lại (chưa làm — ưu tiên kế tiếp):** encoding đầy đủ · LCS diff → worker (B5) · disk watcher ·
+### ✅ Đợt Critical (mục 8 🔴) — ĐÃ XONG (2026-07-19)
+
+> Làm tuần tự, mỗi nhóm nhỏ: build → test → self-review → regression → commit message.
+
+1. **Reopen Closed File "thật"** — `Ctrl+Shift+T` lưu `{path, index, line, col}` khi đóng, khôi phục đúng
+   **vị trí tab trong strip** + **con trỏ**. (chỉ `editor.js`)
+2. **Encoding đầy đủ** — engine thuần `src/main/encoding.js` (detect BOM + NUL-histogram; decode/encode
+   utf8/utf8bom/utf16le/utf16be/latin1 bằng Node built-ins, **không thêm dependency**). `fs:read` tự nhận diện
+   + trả encoding; `fs:write` mã hoá theo encoding của buffer (+BOM). **Status bar hiển thị + bấm được**
+   (Reopen with Encoding / Save with Encoding — menu File + Command Palette). (+13 test)
+3. **Disk watcher (external-change guard)** — khi cửa sổ focus, so `mtime` từng buffer với đĩa: file sạch
+   **tự reload** (giữ con trỏ), file dirty **hỏi Reload/Keep Mine**, file bị xoá đánh dấu dirty để lưu lại.
+   Dùng mtime-on-focus (nhẹ, đa nền tảng) thay `fs.watch`. (chỉ `editor.js` + `app.js`)
+
+→ **Tổng 93 test pass.** Encoding: nhóm 35% → ~85%. Reopen-closed & external-change: đủ tin cậy dùng hằng ngày.
+
+**Còn lại (chưa làm — ưu tiên kế tiếp, KHÔNG thuộc Critical):** LCS diff → worker (B5) ·
 layout grid đa pane · replace-all Find-in-Files · terminal · `.sublime-build` · fs:read cap (B4) · webSecurity (B23).
 
 ---
@@ -78,7 +94,7 @@ layout grid đa pane · replace-all Find-in-Files · terminal · `.sublime-build
 | **Build system** | **70%** | auto-detect npm/Makefile/run-file, output panel, linkify file:line, cancel/rerun | `.sublime-build` (biến `$file`…), Show Build Results / Next-Prev error |
 | **LSP / Ngôn ngữ** | **45%** | diagnostics, hover, completion (JS/TS) | goto-def/reference qua LSP, rename, format, signature help, code action, spell check |
 | **Preferences / Keymap** | **88%** | Settings JSON (Default\|User, live-apply), keymap JSON + chord, auto-save, session/hot-exit | syntax-specific settings, mouse bindings, distraction-free settings riêng |
-| **Encoding / Line-ending** | **35%** | LF/CRLF convert + hiển thị | **toàn bộ bảng encoding** (reopen/save with encoding, BOM, UTF-16, hex view) |
+| **Encoding / Line-ending** | **85%** | LF/CRLF convert; **detect BOM/UTF-8/16/latin1**, Reopen/Save with Encoding, status bar hiển thị+click | các bảng mã hiếm (Shift-JIS, GBK…) cần `iconv-lite`; hex view |
 | **Terminal** | **0%** | — | integrated terminal (node-pty bị chặn build môi trường này) |
 | **Plugin / Package Control** | **0%** | — | plugin API, package registry, Vim mode |
 | **Large file** | **110%** | streaming GB→100GB, sparse index, virtualized viewer | *(vượt Sublime)* — read-only, off-by-1 nhỏ ở chế độ clamped (7) |
@@ -263,10 +279,11 @@ Alt+1..9 (chọn tab), Ctrl+PageUp/Down, Ctrl+Tab (MRU), Ctrl+1..9 (focus group)
 
 ## 8. Missing features (so với Sublime, theo ưu tiên)
 
-### 🔴 Critical (chặn "editor dùng thật hằng ngày")
-- **Encoding đầy đủ** — Reopen/Save with Encoding, BOM, UTF-16, `iconv-lite`, hiển thị+click ở status bar. (nhóm 35%)
-- **Reopen Closed File "thật"** — hiện có `reopenClosed` stack path, nhưng cần kiểm chứng khôi phục đúng tab/con trỏ.
-- **Disk watcher** — tự phát hiện file đổi ngoài app (`fs.watch`), cảnh báo external-change (hiện không có → dễ ghi đè mất dữ liệu).
+### 🔴 Critical (chặn "editor dùng thật hằng ngày") — ✅ ĐÃ XONG (xem block "Đợt Critical" ở đầu file)
+- ✅ **Encoding đầy đủ** — Reopen/Save with Encoding, BOM, UTF-16, hiển thị+click ở status bar. Dùng
+  `src/main/encoding.js` (Node built-ins, không cần `iconv-lite`). Nhóm 35% → ~85%.
+- ✅ **Reopen Closed File "thật"** — khôi phục đúng vị trí tab trong strip + con trỏ (`{path,index,line,col}`).
+- ✅ **Disk watcher** — external-change guard bằng mtime-on-focus: reload file sạch, hỏi file dirty, đánh dấu file bị xoá.
 
 ### 🟠 High
 - **LSP goto-definition/reference/rename/format/signature/code-action** (đang 45%).

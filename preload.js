@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld('lumen', {
   saveFileDialog: (defaultPath) => ipcRenderer.invoke('dialog:saveFile', defaultPath),
 
   // filesystem
-  readFile: (p) => ipcRenderer.invoke('fs:read', p),
-  writeFile: (p, c) => ipcRenderer.invoke('fs:write', p, c),
+  readFile: (p, encoding) => ipcRenderer.invoke('fs:read', p, encoding),
+  writeFile: (p, c, encoding) => ipcRenderer.invoke('fs:write', p, c, encoding),
   readDir: (p) => ipcRenderer.invoke('fs:readdir', p),
   walk: (root, limit) => ipcRenderer.invoke('fs:walk', root, limit),
   stat: (p) => ipcRenderer.invoke('fs:stat', p),
