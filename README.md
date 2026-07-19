@@ -59,6 +59,12 @@ npm install
 npm start          # or: npm run dev  (opens with DevTools)
 ```
 
+**Uninstall:**
+```bash
+sudo ./scripts/uninstall.sh          # remove the app, keep your settings
+sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen (settings + session)
+```
+
 > If `npm install` can't fetch the Electron binary (a sandbox blocking postinstall),
 > run: `node node_modules/electron/install.js` or `npm rebuild electron`.
 
