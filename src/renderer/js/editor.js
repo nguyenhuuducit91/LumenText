@@ -21,6 +21,10 @@ LUM.editor = (function () {
 
   let langByExt = null;
 
+  // Extensions Monaco doesn't map out of the box → best-fit built-in grammar.
+  // .conf/.cfg/.cnf use the INI grammar (key=value, [sections], # / ; comments).
+  const EXT_OVERRIDE = { '.conf': 'ini', '.cfg': 'ini', '.cnf': 'ini' };
+
   // ---- language detection -------------------------------------------------
   function buildLangMap() {
     langByExt = new Map();
@@ -36,14 +40,14 @@ LUM.editor = (function () {
     if (langByExt.has(lower)) return langByExt.get(lower);
     const dot = lower.lastIndexOf('.');
     const ext = dot >= 0 ? lower.slice(dot) : '';
-    return langByExt.get(ext) || 'plaintext';
+    return langByExt.get(ext) || EXT_OVERRIDE[ext] || 'plaintext';
   }
 
   // ---- Monaco base options ------------------------------------------------
   function baseOptions() {
     const base = {
       theme: LUM.state ? LUM.state.theme : 'stp-mariana',
-      lineHeight: 20,
+      lineHeight: 0, // 0 = auto (scales with font size, so zoom never overlaps lines)
       minimap: { enabled: true, renderCharacters: true, showSlider: 'mouseover', maxColumn: 80 },
       renderWhitespace: 'selection',
       cursorBlinking: 'smooth',
@@ -58,6 +62,10 @@ LUM.editor = (function () {
       guides: { indentation: true, highlightActiveIndentation: true, bracketPairs: false },
       autoClosingBrackets: 'languageDefined',
       renderLineHighlight: 'line', // ST highlights the line, not the whole gutter
+      // Keep the line-number gutter tight: reserve only ~2 digits, then let Monaco
+      // grow it automatically as the line count needs more digits.
+      lineNumbersMinChars: 2,
+      lineDecorationsWidth: 6,
       stickyScroll: { enabled: false }, // controlled by the sticky_scroll setting (see settings.js)
       scrollBeyondLastLine: true,
       wordWrap: 'off',

@@ -141,6 +141,8 @@ html, body {
   white-space: nowrap; font-size: 13px; color: var(--fg);
 }
 .tree-row:hover { background: var(--bg-hover); }
+/* Keyboard-selected row (click / arrow focus) — press F2 here to rename. */
+.tree-row:focus { background: var(--sel); color: var(--fg-bright); outline: 1px solid var(--sel-strong); outline-offset: -1px; }
 /* Sublime Adaptive: active/open row = muted selection fill, NO left accent bar */
 .tree-row.active { background: var(--sel); color: var(--fg-bright); }
 .tree-row .twisty {
@@ -279,14 +281,19 @@ html, body {
 
 /* ---------------- Status bar ---------------- */
 .statusbar {
-  height: 22px; background: var(--bg-dark);
+  height: 22px; flex: 0 0 22px; background: var(--bg-dark);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px; font-size: 11px; color: var(--fg-dim);
   border-top: 1px solid var(--border-soft);
+  white-space: nowrap; overflow: hidden; gap: 12px; /* never wrap to a second line */
 }
-#status-left { display: flex; align-items: center; gap: 8px; }
-#status-right { display: flex; gap: 18px; }
-.status-item { cursor: default; }
+/* The path shrinks and ellipsises; the right-hand items keep their width. */
+#status-left {
+  flex: 0 1 auto; min-width: 0; gap: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#status-right { display: flex; gap: 18px; flex: 0 0 auto; }
+.status-item { cursor: default; white-space: nowrap; }
 .status-item.click { cursor: pointer; }
 .status-item.click:hover { color: var(--fg-bright); }
 #status-ime { color: var(--accent-2); }
@@ -605,7 +612,19 @@ body.zen .sfind { display: none; }
 .about-ver { display: inline-block; margin-top: 6px; padding: 1px 8px; font-size: 11px; border-radius: 20px; background: rgba(255, 255, 255, .2); color: #fff; }
 .about-tagline { margin: 12px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .92); }
 
-.about-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 6px; }
+.about-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 6px;
+  /* Always a light card, regardless of the app theme. Re-scope the color tokens
+     so chips/rows/labels inside render with light-mode contrast. */
+  background: #ffffff; color: #3c4149;
+  --fg: #3c4149;
+  --fg-bright: #1b1f24;
+  --fg-dim: #6b7280;
+  --sel: #eef1f5;
+  --border: #e4e7eb;
+  --bg-hover: #eef1f5;
+  --accent: #2b6fd8;
+}
 .about-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .about-chip { padding: 3px 9px; font-size: 11px; border-radius: 20px; background: var(--sel); color: var(--fg-bright); border: 1px solid var(--border); }
 

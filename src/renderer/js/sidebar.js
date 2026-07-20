@@ -195,6 +195,7 @@ LUM.sidebar = (function () {
       row.dataset.path = e.path;
       row.dataset.dir = e.isDir ? '1' : '';
       row.title = e.path;
+      row.tabIndex = 0; // focusable so keyboard (F2 = rename) targets it
       const cur = LUM.editor.activeBuffer && LUM.editor.activeBuffer();
       if (cur && cur.path === e.path) row.classList.add('active');
 
@@ -205,6 +206,9 @@ LUM.sidebar = (function () {
           if (expanded.has(e.path)) expanded.delete(e.path);
           else expanded.add(e.path);
           await render();
+          // render() rebuilds the tree; keep this row selected/focused for F2.
+          const nr = document.querySelector(`#file-tree .tree-row[data-path="${cssEscape(e.path)}"]`);
+          if (nr) nr.focus();
         } else {
           // Single click = transient preview tab (italic); double click below
           // (or editing) promotes it to a permanent tab — Sublime Text style.
@@ -498,6 +502,19 @@ LUM.sidebar = (function () {
     return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
   function cssEscape(s) { return s.replace(/["\\]/g, '\\$&'); }
+
+  // F2 renames the focused sidebar row. Registered on document in capture phase
+  // (sidebar.js loads before keymap.js, so this runs first) and guarded to a
+  // focused .tree-row — so F2 stays "Next Bookmark" whenever the editor is active.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'F2') return;
+    const active = document.activeElement;
+    const row = active && active.closest && active.closest('#file-tree .tree-row');
+    if (!row || !row.dataset.path || edit) return; // not in sidebar (or already editing)
+    ev.preventDefault();
+    ev.stopImmediatePropagation(); // beat the keymap's bookmark command
+    startRename(row.dataset.path, row.dataset.dir === '1');
+  }, true);
 
   return {
     get root() { return roots[0] || null; },

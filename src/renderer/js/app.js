@@ -981,6 +981,20 @@ LUM.app = (function () {
     else await LUM.editor.openPath(p);
   }
 
+  // Ctrl + mouse wheel => zoom the editor font in/out. Routes through bumpFont so
+  // it stays in sync with Ctrl+= / Ctrl+- and persists to the font_size setting.
+  function installWheelZoom() {
+    let accum = 0;
+    const STEP = 60; // wheel pixels per 1px font change (keeps trackpads from over-zooming)
+    window.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault(); // stop page/webframe zoom; we zoom the font instead
+      accum += e.deltaY;
+      while (accum <= -STEP) { bumpFont(1); accum += STEP; }   // scroll up = zoom in
+      while (accum >= STEP) { bumpFont(-1); accum -= STEP; }   // scroll down = zoom out
+    }, { passive: false, capture: true });
+  }
+
   // ---- drag & drop (files/folders onto the window) ------------------------
   function installDragDrop() {
     const overlay = document.createElement('div');
@@ -994,13 +1008,15 @@ LUM.app = (function () {
 
     window.addEventListener('dragenter', (e) => {
       if (!isFileDrag(e)) return;
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       depth++;
       overlay.classList.add('visible');
     }, true);
     window.addEventListener('dragover', (e) => {
       if (!isFileDrag(e)) return;
-      e.preventDefault();
+      // preventDefault stops the webview from navigating to the file; stopPropagation
+      // keeps Monaco / tab-reorder / sidebar drop targets from also handling it.
+      e.preventDefault(); e.stopPropagation();
       e.dataTransfer.dropEffect = 'copy';
     }, true);
     window.addEventListener('dragleave', (e) => {
@@ -1008,16 +1024,21 @@ LUM.app = (function () {
       depth = Math.max(0, depth - 1);
       if (depth === 0) hide();
     }, true);
-    window.addEventListener('drop', async (e) => {
+    window.addEventListener('drop', (e) => {
       if (!isFileDrag(e)) return; // let Monaco handle internal text drops
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       hide();
+      // Read dataTransfer.files synchronously — it is invalidated once this
+      // handler returns, so resolve every path before awaiting anything.
       const paths = Array.from(e.dataTransfer.files || [])
         .map((f) => window.lumenText.pathForFile(f))
         .filter(Boolean);
-      for (const p of paths) {
-        try { await openExternalPath(p); } catch (err) { console.error('drop open failed', p, err); }
-      }
+      if (!paths.length) { toast('Could not open the dropped item'); return; }
+      (async () => {
+        for (const p of paths) {
+          try { await openExternalPath(p); } catch (err) { console.error('drop open failed', p, err); }
+        }
+      })();
     }, true);
   }
 
@@ -1222,6 +1243,7 @@ LUM.app = (function () {
     // so it wins over Monaco's own drop handling; internal text drags (no
     // 'Files' type) pass straight through untouched.
     installDragDrop();
+    installWheelZoom();
 
     // Persist session on quit as a last-chance safety net (in addition to the
     // debounced saves triggered by tab/folder changes).
