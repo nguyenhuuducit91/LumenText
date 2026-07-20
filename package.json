@@ -15,9 +15,9 @@
     "dev": "electron . --dev",
     "test": "node --test",
     "bench": "node scripts/bench-largefile.js",
-    "dist:deb": "electron-builder --linux deb",
-    "dist:appimage": "electron-builder --linux AppImage",
-    "dist": "electron-builder --linux deb AppImage"
+    "build:deb": "electron-builder --linux deb",
+    "build:appimage": "electron-builder --linux AppImage",
+    "build": "electron-builder --linux deb AppImage"
   },
   "dependencies": {
     "monaco-editor": "^0.52.2"
