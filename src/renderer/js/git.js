@@ -17,7 +17,7 @@ LUM.git = (function () {
 
   // ---- repo lifecycle -----------------------------------------------------
   async function onFolderOpen(dir) {
-    repo = await window.lumen.gitRoot(dir);
+    repo = await window.lumenText.gitRoot(dir);
     headCache.clear();
     if (!repo) {
       statusMap = {};
@@ -31,7 +31,7 @@ LUM.git = (function () {
 
   async function refresh() {
     if (!repo) return;
-    const s = await window.lumen.gitStatus(repo);
+    const s = await window.lumenText.gitStatus(repo);
     statusMap = s ? s.files : {};
     branchName = s ? s.branch : '';
     headCache.clear();
@@ -70,7 +70,7 @@ LUM.git = (function () {
   }
 
   function dirHasChanges(dirPath) {
-    const prefix = dirPath + (window.lumen.sep || '/');
+    const prefix = dirPath + (window.lumenText.sep || '/');
     for (const p in statusMap) if (p.startsWith(prefix)) return true;
     return false;
   }
@@ -118,7 +118,7 @@ LUM.git = (function () {
 
     let head = headCache.get(buf.path);
     if (head === undefined) {
-      head = await window.lumen.gitHeadFile(repo, buf.path);
+      head = await window.lumenText.gitHeadFile(repo, buf.path);
       headCache.set(buf.path, head);
     }
     // The pane may have switched buffers during the await — bail if so, otherwise
@@ -222,7 +222,7 @@ LUM.git = (function () {
   async function revertFile() {
     const buf = LUM.editor.activeBuffer();
     if (!repo || !buf || !buf.path || buf.kind !== 'text') return;
-    const head = await window.lumen.gitHeadFile(repo, buf.path);
+    const head = await window.lumenText.gitHeadFile(repo, buf.path);
     if (head == null) { LUM.app.toast('No HEAD version to revert to'); return; }
     buf.model.setValue(head);
     LUM.app.toast('Reverted to HEAD: ' + buf.name);

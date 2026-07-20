@@ -6,7 +6,7 @@ window.LUM = window.LUM || {};
 // projects), lazy-expands directories and provides the full set of file
 // operations (new / rename / delete / duplicate / copy path / reveal /
 // find-in-folder) via a shared themed context menu and inline inputs.
-// All OS access goes through window.lumen (main process); no fs in the renderer.
+// All OS access goes through window.lumenText (main process); no fs in the renderer.
 // ===========================================================================
 LUM.sidebar = (function () {
   /** @type {string[]} project root folders */
@@ -25,7 +25,7 @@ LUM.sidebar = (function () {
   // Remap/prune `expanded` entries when a folder is renamed or deleted, so open
   // descendants follow the rename and stale paths don't leak forever.
   function remapExpanded(oldPath, newPath) {
-    const sep = window.lumen.sep;
+    const sep = window.lumenText.sep;
     for (const p of [...expanded]) {
       if (p === oldPath || p.startsWith(oldPath + sep)) {
         expanded.delete(p);
@@ -39,7 +39,7 @@ LUM.sidebar = (function () {
   }
   function refreshLabel() {
     if (LUM.project) LUM.project.updateLabel();
-    else setLabel(roots[0] ? window.lumen.basename(roots[0]).toUpperCase() : 'NO FOLDER OPEN');
+    else setLabel(roots[0] ? window.lumenText.basename(roots[0]).toUpperCase() : 'NO FOLDER OPEN');
   }
 
   // Open a single folder (replaces the whole project) — the common entry point.
@@ -102,7 +102,7 @@ LUM.sidebar = (function () {
 
   async function entriesOf(dir) {
     if (cache.has(dir)) return cache.get(dir);
-    const list = await window.lumen.readDir(dir);
+    const list = await window.lumenText.readDir(dir);
     cache.set(dir, list);
     return list;
   }
@@ -147,7 +147,7 @@ LUM.sidebar = (function () {
     const isOpen = expanded.has(dir);
     row.innerHTML =
       `<span class="twisty">${isOpen ? '▼' : '▶'}</span>` +
-      `<span class="tname">${escapeHtml(window.lumen.basename(dir).toUpperCase())}</span>`;
+      `<span class="tname">${escapeHtml(window.lumenText.basename(dir).toUpperCase())}</span>`;
     row.dataset.path = dir;
     row.dataset.dir = '1';
     row.title = dir;
@@ -292,30 +292,30 @@ LUM.sidebar = (function () {
     if (edit.mode === 'create') {
       return LUM.pathops.validateName(name, await siblingNames(edit.dir));
     }
-    const parent = window.lumen.dirname(edit.path);
-    const original = window.lumen.basename(edit.path);
+    const parent = window.lumenText.dirname(edit.path);
+    const original = window.lumenText.basename(edit.path);
     return LUM.pathops.validateName(name, await siblingNames(parent), original);
   }
 
   async function performInline(target, name) {
     try {
       if (target.mode === 'create') {
-        const full = window.lumen.join(target.dir, name);
+        const full = window.lumenText.join(target.dir, name);
         if (target.isDir) {
-          await window.lumen.mkdir(full);
+          await window.lumenText.mkdir(full);
           expanded.add(full);
         } else {
-          await window.lumen.writeFile(full, '');
+          await window.lumenText.writeFile(full, '');
         }
         cache.delete(target.dir);
         await render();
         afterFsChange();
         if (!target.isDir) await LUM.editor.openPath(full);
       } else {
-        const parent = window.lumen.dirname(target.path);
-        const dest = window.lumen.join(parent, name);
+        const parent = window.lumenText.dirname(target.path);
+        const dest = window.lumenText.join(parent, name);
         if (dest === target.path) { await render(); return; }
-        await window.lumen.rename(target.path, dest);
+        await window.lumenText.rename(target.path, dest);
         if (target.isDir) remapExpanded(target.path, dest); // follow open descendants
         LUM.editor.applyPathChange(target.path, dest);
         cache.delete(parent);
@@ -343,7 +343,7 @@ LUM.sidebar = (function () {
 
   // --- destructive / clipboard ops ----------------------------------------
   async function doDelete(path, isDir) {
-    const name = window.lumen.basename(path);
+    const name = window.lumenText.basename(path);
     const choice = await LUM.dialog.confirm({
       message: `Delete "${name}"?`,
       detail: isDir ? 'The folder and its contents will be moved to Trash.' : 'The file will be moved to Trash.',
@@ -356,9 +356,9 @@ LUM.sidebar = (function () {
     });
     if (choice !== 'ok') return;
     try {
-      await window.lumen.trash(path);
+      await window.lumenText.trash(path);
       LUM.editor.markPathDeleted(path);
-      cache.delete(window.lumen.dirname(path));
+      cache.delete(window.lumenText.dirname(path));
       remapExpanded(path, null); // prune the folder and all its open descendants
       await render();
       afterFsChange();
@@ -369,11 +369,11 @@ LUM.sidebar = (function () {
   }
 
   async function doDuplicate(path, isDir) {
-    const parent = window.lumen.dirname(path);
-    const name = window.lumen.basename(path);
-    const dest = window.lumen.join(parent, LUM.pathops.dedupeName(await siblingNames(parent), name));
+    const parent = window.lumenText.dirname(path);
+    const name = window.lumenText.basename(path);
+    const dest = window.lumenText.join(parent, LUM.pathops.dedupeName(await siblingNames(parent), name));
     try {
-      await window.lumen.copy(path, dest);
+      await window.lumenText.copy(path, dest);
       cache.delete(parent);
       await render();
       afterFsChange();
@@ -385,30 +385,30 @@ LUM.sidebar = (function () {
 
   // Find the root folder that contains `path` (for relative-path display).
   function rootOf(path) {
-    return roots.find((r) => path === r || path.startsWith(r + window.lumen.sep)) || null;
+    return roots.find((r) => path === r || path.startsWith(r + window.lumenText.sep)) || null;
   }
 
   async function copyPath(path, relative) {
     let p = path;
     if (relative) {
       const r = rootOf(path);
-      if (r && p.startsWith(r + window.lumen.sep)) p = p.slice(r.length + 1);
+      if (r && p.startsWith(r + window.lumenText.sep)) p = p.slice(r.length + 1);
     }
     try { await navigator.clipboard.writeText(p); } catch {}
     LUM.app.toast('Copied: ' + p);
   }
 
-  function reveal(path) { window.lumen.showItem(path); }
+  function reveal(path) { window.lumenText.showItem(path); }
 
   // Expand ancestors of `path` and scroll it into view (used by tab menu).
   async function revealInSidebar(path) {
     const r = rootOf(path);
     if (!r) return;
-    const rel = path.slice(r.length).split(window.lumen.sep).filter(Boolean);
+    const rel = path.slice(r.length).split(window.lumenText.sep).filter(Boolean);
     expanded.add(r);
     let cur = r;
     for (let i = 0; i < rel.length - 1; i++) {
-      cur = window.lumen.join(cur, rel[i]);
+      cur = window.lumenText.join(cur, rel[i]);
       expanded.add(cur);
     }
     contextPath = path;
@@ -445,7 +445,7 @@ LUM.sidebar = (function () {
     const isDir = entry && entry.isDir;
     const path = entry && entry.path;
     const isRoot = entry && entry.isRoot;
-    const targetDir = !entry ? roots[0] : (isDir ? path : window.lumen.dirname(path));
+    const targetDir = !entry ? roots[0] : (isDir ? path : window.lumenText.dirname(path));
     const items = [];
     items.push({ label: 'New File', run: () => startCreate(targetDir, false) });
     items.push({ label: 'New Folder', run: () => startCreate(targetDir, true) });
@@ -491,7 +491,7 @@ LUM.sidebar = (function () {
   }
   async function isDirPath(p) {
     if (roots.includes(p)) return true;
-    try { const st = await window.lumen.stat(p); return !!st.isDir; } catch { return false; }
+    try { const st = await window.lumenText.stat(p); return !!st.isDir; } catch { return false; }
   }
 
   function escapeHtml(s) {

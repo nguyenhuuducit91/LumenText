@@ -12,9 +12,9 @@ LUM.project = (function () {
   let projectData = {};   // the full parsed .sublime-project (settings, build_systems, …)
 
   function name() {
-    if (projectPath) return window.lumen.basename(projectPath).replace(/\.sublime-project$/, '');
+    if (projectPath) return window.lumenText.basename(projectPath).replace(/\.sublime-project$/, '');
     const roots = LUM.sidebar.roots;
-    if (roots.length === 1) return window.lumen.basename(roots[0]);
+    if (roots.length === 1) return window.lumenText.basename(roots[0]);
     if (roots.length > 1) return 'Untitled Project';
     return null;
   }
@@ -27,21 +27,21 @@ LUM.project = (function () {
   // Resolve folder entries (which may be relative to the project file) to
   // absolute directory paths.
   function resolveFolders(proj, projFilePath) {
-    const dir = window.lumen.dirname(projFilePath);
+    const dir = window.lumenText.dirname(projFilePath);
     return (proj.folders || [])
       .map((f) => f.path)
       .filter(Boolean)
-      .map((p) => (window.lumen.isAbsolute(p) ? p : window.lumen.resolve(dir, p)));
+      .map((p) => (window.lumenText.isAbsolute(p) ? p : window.lumenText.resolve(dir, p)));
   }
 
   function serialize() {
     // Store folder paths relative to the project file when possible (portable),
     // else absolute.
-    const dir = projectPath ? window.lumen.dirname(projectPath) : null;
+    const dir = projectPath ? window.lumenText.dirname(projectPath) : null;
     const folders = LUM.sidebar.roots.map((p) => {
       let rel = p;
       if (dir) {
-        const r = window.lumen.relative(dir, p);
+        const r = window.lumenText.relative(dir, p);
         if (r === '') rel = '.';                    // the project-file's own folder
         else if (!r.startsWith('..')) rel = r;      // a descendant → keep relative
         // else: outside the project dir → keep absolute
@@ -49,7 +49,7 @@ LUM.project = (function () {
       // Preserve any per-folder keys (name, *_exclude_patterns, follow_symlinks)
       // that were on the original folder entry for this path.
       const prev = (projectData.folders || []).find((f) => {
-        const abs = window.lumen.isAbsolute(f.path) ? f.path : window.lumen.resolve(dir || '.', f.path);
+        const abs = window.lumenText.isAbsolute(f.path) ? f.path : window.lumenText.resolve(dir || '.', f.path);
         return abs === p || f.path === rel;
       });
       return Object.assign({}, prev, { path: rel });
@@ -61,7 +61,7 @@ LUM.project = (function () {
 
   async function openPath(p) {
     try {
-      const { content } = await window.lumen.readFile(p);
+      const { content } = await window.lumenText.readFile(p);
       const proj = JSON.parse(content);
       const folders = resolveFolders(proj, p);
       if (!folders.length) { LUM.app.toast('Project has no folders'); return; }
@@ -69,9 +69,9 @@ LUM.project = (function () {
       projectData = proj; // retain settings / build_systems / exclude patterns
       projectPath = p;
       updateLabel();
-      await window.lumen.projectAddRecent(p);
+      await window.lumenText.projectAddRecent(p);
       LUM.app.pushRecent && LUM.app.pushRecent(p, 'file');
-      LUM.app.toast('Project: ' + (name() || window.lumen.basename(p)));
+      LUM.app.toast('Project: ' + (name() || window.lumenText.basename(p)));
     } catch (e) {
       LUM.app.toast('Not a valid .sublime-project file');
       console.error('openProject', e);
@@ -79,15 +79,15 @@ LUM.project = (function () {
   }
 
   async function open() {
-    const paths = await window.lumen.openFileDialog();
+    const paths = await window.lumenText.openFileDialog();
     if (paths && paths[0]) await openPath(paths[0]);
   }
 
   async function quickSwitch() {
-    const list = (await window.lumen.projectRecent()) || [];
+    const list = (await window.lumenText.projectRecent()) || [];
     if (!list.length) { LUM.app.toast('No recent projects'); return; }
     const entries = list.map((p) => ({
-      label: window.lumen.basename(p).replace(/\.sublime-project$/, ''),
+      label: window.lumenText.basename(p).replace(/\.sublime-project$/, ''),
       sub: p,
       run: () => openPath(p)
     }));
@@ -96,30 +96,30 @@ LUM.project = (function () {
 
   async function saveAs() {
     const roots = LUM.sidebar.roots;
-    const base = name() || (roots[0] ? window.lumen.basename(roots[0]) : 'project');
+    const base = name() || (roots[0] ? window.lumenText.basename(roots[0]) : 'project');
     const suggestedDir = roots[0] || null;
     const suggested = base + '.sublime-project';
-    const target = await window.lumen.saveFileDialog(suggestedDir ? window.lumen.join(suggestedDir, suggested) : suggested);
+    const target = await window.lumenText.saveFileDialog(suggestedDir ? window.lumenText.join(suggestedDir, suggested) : suggested);
     if (!target) return;
     projectPath = target; // set first so serialize() writes relative paths
-    await window.lumen.writeFile(target, JSON.stringify(serialize(), null, 2) + '\n');
+    await window.lumenText.writeFile(target, JSON.stringify(serialize(), null, 2) + '\n');
     updateLabel();
-    await window.lumen.projectAddRecent(target);
+    await window.lumenText.projectAddRecent(target);
     LUM.app.pushRecent && LUM.app.pushRecent(target, 'file');
-    LUM.app.toast('Project saved: ' + window.lumen.basename(target));
+    LUM.app.toast('Project saved: ' + window.lumenText.basename(target));
   }
 
   async function save() {
     if (!projectPath) return saveAs();
-    await window.lumen.writeFile(projectPath, JSON.stringify(serialize(), null, 2) + '\n');
+    await window.lumenText.writeFile(projectPath, JSON.stringify(serialize(), null, 2) + '\n');
     updateLabel();
-    LUM.app.toast('Project saved: ' + window.lumen.basename(projectPath));
+    LUM.app.toast('Project saved: ' + window.lumenText.basename(projectPath));
   }
 
   // Silently persist folder changes if a project file is open.
   async function onFoldersChanged() {
     if (projectPath) {
-      try { await window.lumen.writeFile(projectPath, JSON.stringify(serialize(), null, 2) + '\n'); } catch {}
+      try { await window.lumenText.writeFile(projectPath, JSON.stringify(serialize(), null, 2) + '\n'); } catch {}
     }
   }
 
@@ -137,7 +137,7 @@ LUM.project = (function () {
   }
 
   async function addFolder() {
-    const dir = await window.lumen.openFolderDialog();
+    const dir = await window.lumenText.openFolderDialog();
     if (!dir) return;
     await LUM.sidebar.addFolder(dir);
     updateLabel();
@@ -153,7 +153,7 @@ LUM.project = (function () {
   function refreshFolders() { LUM.sidebar.refresh(); }
 
   async function clearRecent() {
-    await window.lumen.projectClearRecent();
+    await window.lumenText.projectClearRecent();
     LUM.app.toast('Recent projects cleared');
   }
 

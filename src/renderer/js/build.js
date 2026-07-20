@@ -34,8 +34,8 @@ LUM.build = (function () {
     els.close.addEventListener('click', close);
     els.stop.addEventListener('click', stop);
     els.rerun.addEventListener('click', () => { if (lastCmd) run(lastCmd, lastCwd, lastTitle); });
-    window.lumen.onProcData((id, chunk) => { if (id === curId) append(chunk); });
-    window.lumen.onProcExit((id, code) => {
+    window.lumenText.onProcData((id, chunk) => { if (id === curId) append(chunk); });
+    window.lumenText.onProcExit((id, code) => {
       if (id !== curId) return;
       append('\n[exited with code ' + code + ']\n');
       els.status.textContent = code === 0 ? 'done ✓' : 'exit ' + code;
@@ -47,7 +47,7 @@ LUM.build = (function () {
 
   function open() { grab().panel.classList.remove('hidden'); LUM.editor.layout(); }
   function close() { grab().panel.classList.add('hidden'); LUM.editor.layout(); }
-  function stop() { if (curId != null) window.lumen.procKill(curId); }
+  function stop() { if (curId != null) window.lumenText.procKill(curId); }
 
   // Strip ANSI colour/cursor escape sequences so compiler/linter output reads
   // cleanly and file:line links aren't split by escape bytes.
@@ -84,10 +84,10 @@ LUM.build = (function () {
 
   async function jump(file, line, col) {
     let p = file;
-    if (!(window.lumen.platform === 'win32' ? /^[a-zA-Z]:/ : /^\//).test(file)) {
-      p = window.lumen.join(lastCwd || LUM.sidebar.root || '.', file);
+    if (!(window.lumenText.platform === 'win32' ? /^[a-zA-Z]:/ : /^\//).test(file)) {
+      p = window.lumenText.join(lastCwd || LUM.sidebar.root || '.', file);
     }
-    const st = await window.lumen.stat(p);
+    const st = await window.lumenText.stat(p);
     if (!st.exists) return LUM.app.toast('Not found: ' + p);
     await LUM.editor.openPath(p);
     const ed = LUM.editor.activeEditor();
@@ -100,7 +100,7 @@ LUM.build = (function () {
 
   function run(cmd, cwd, title) {
     grab();
-    if (curId != null) { window.lumen.procKill(curId); curId = null; } // don't orphan a running build
+    if (curId != null) { window.lumenText.procKill(curId); curId = null; } // don't orphan a running build
     open();
     lastCmd = cmd; lastCwd = cwd; lastTitle = title || cmd;
     raw = '';
@@ -110,7 +110,7 @@ LUM.build = (function () {
     els.status.className = 'output-status';
     append('$ ' + cmd + (cwd ? '   (' + cwd + ')' : '') + '\n\n');
     curId = seq++;
-    window.lumen.procRun(curId, cmd, cwd);
+    window.lumenText.procRun(curId, cmd, cwd);
   }
 
   // Build variants from the project + current file, then a custom command.
@@ -118,24 +118,24 @@ LUM.build = (function () {
     const root = LUM.sidebar.root;
     const variants = [];
     if (root) {
-      const pkg = await window.lumen.stat(window.lumen.join(root, 'package.json'));
+      const pkg = await window.lumenText.stat(window.lumenText.join(root, 'package.json'));
       if (pkg.exists) {
         try {
-          const { content } = await window.lumen.readFile(window.lumen.join(root, 'package.json'));
+          const { content } = await window.lumenText.readFile(window.lumenText.join(root, 'package.json'));
           const scripts = (JSON.parse(content).scripts) || {};
           Object.keys(scripts).forEach((s) =>
             variants.push({ label: 'npm run ' + s, run: () => run('npm run ' + s, root, 'npm run ' + s) }));
         } catch {}
       }
       for (const mk of ['Makefile', 'makefile']) {
-        const st = await window.lumen.stat(window.lumen.join(root, mk));
+        const st = await window.lumenText.stat(window.lumenText.join(root, mk));
         if (st.exists) { variants.push({ label: 'make', run: () => run('make', root, 'make') }); break; }
       }
     }
     const buf = LUM.editor.activeBuffer();
     if (buf && buf.path && buf.kind === 'text') {
-      const ext = window.lumen.extname(buf.path).toLowerCase();
-      const dir = window.lumen.dirname(buf.path);
+      const ext = window.lumenText.extname(buf.path).toLowerCase();
+      const dir = window.lumenText.dirname(buf.path);
       const runners = { '.js': 'node', '.mjs': 'node', '.py': 'python3', '.sh': 'bash', '.rb': 'ruby', '.go': 'go run', '.ts': 'npx ts-node' };
       if (runners[ext]) {
         const cmd = runners[ext] + ' "' + buf.path + '"';

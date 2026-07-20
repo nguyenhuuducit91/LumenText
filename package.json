@@ -1,11 +1,11 @@
 {
-  "name": "lumen",
-  "productName": "Lumen",
+  "name": "lumen-text",
+  "productName": "Lumen Text",
   "version": "0.1.0",
   "description": "A fast, modern code editor for Ubuntu built with Electron + Monaco, with inline fcitx Vietnamese input support.",
   "homepage": "https://github.com/nguyenhuuducit91/LumenText",
   "author": {
-    "name": "Lumen",
+    "name": "Lumen Text",
     "email": "duc.nguyenhuu@vietis.com.vn"
   },
   "license": "MIT",
@@ -31,9 +31,9 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.lumen.editor",
-    "productName": "Lumen",
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "appId": "com.lumentext.editor",
+    "productName": "Lumen Text",
+    "artifactName": "LumenText-${version}-${arch}.${ext}",
     "files": [
       "main.js",
       "preload.js",
@@ -51,7 +51,7 @@
       "icon": "build/icons",
       "maintainer": "duc.nguyenhuu@vietis.com.vn",
       "desktop": {
-        "Name": "Lumen",
+        "Name": "Lumen Text",
         "Comment": "A fast modern code editor",
         "Categories": "Development;TextEditor;IDE;",
         "MimeType": "text/plain;text/x-python;application/javascript;text/html;"

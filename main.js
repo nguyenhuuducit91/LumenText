@@ -43,14 +43,19 @@ const windows = new Set();
 
 const APP_ICON = nativeImage.createFromPath(path.join(__dirname, 'build', 'icons', '512x512.png'));
 
-function createWindow(openPath) {
+const CONFIG_TITLES = { settings: 'Settings', keymap: 'Key Bindings' };
+
+function createWindow(openPath, opts = {}) {
+  // A "config" window boots straight into the Default | User split for a named
+  // config (Sublime-style), so the main editing window's layout is never touched.
+  const configMode = opts.config && CONFIG_TITLES[opts.config] ? opts.config : null;
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: configMode ? 1100 : 1280,
+    height: configMode ? 720 : 820,
     minWidth: 640,
     minHeight: 400,
     backgroundColor: '#272822',
-    title: 'Lumen',
+    title: configMode ? CONFIG_TITLES[configMode] + ' — Lumen Text' : 'Lumen Text',
     icon: APP_ICON.isEmpty() ? undefined : APP_ICON,
     autoHideMenuBar: false,
     webPreferences: {
@@ -60,7 +65,9 @@ function createWindow(openPath) {
       sandbox: false,
       // Passed into the renderer's process.argv so boot can read the initial
       // path synchronously (no race with session restore).
-      additionalArguments: openPath ? ['--stp-initial=' + openPath] : [],
+      additionalArguments: configMode
+        ? ['--stp-config=' + configMode]
+        : (openPath ? ['--stp-initial=' + openPath] : []),
       // Local Monaco assets + workers are loaded over file:// / data: URIs.
       // Relaxing webSecurity keeps the worker importScripts calls working for
       // a purely local desktop app (no remote content is ever loaded).
@@ -93,6 +100,7 @@ function createWindow(openPath) {
   });
 
   win.on('closed', () => windows.delete(win));
+  win._isConfig = !!configMode; // config windows never receive forwarded file opens
   windows.add(win);
 
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
@@ -191,7 +199,9 @@ function fontSubmenu(accel = true) {
   return [
     { label: 'Larger', accelerator: accel ? 'CmdOrCtrl+=' : undefined, click: () => send('view.fontLarger') },
     { label: 'Smaller', accelerator: accel ? 'CmdOrCtrl+-' : undefined, click: () => send('view.fontSmaller') },
-    { label: 'Reset', accelerator: accel ? 'CmdOrCtrl+0' : undefined, click: () => send('view.fontReset') }
+    { label: 'Reset', accelerator: accel ? 'CmdOrCtrl+0' : undefined, click: () => send('view.fontReset') },
+    { type: 'separator' },
+    { label: 'Choose…', click: () => send('view.fontChoose') }
   ];
 }
 
@@ -201,6 +211,7 @@ function sideBarSubmenu() {
     { label: 'Toggle Side Bar', accelerator: 'CmdOrCtrl+B', click: () => send('view.toggleSidebar') },
     { label: 'Toggle Tabs', click: () => send('view.toggleTabs') },
     { label: 'Toggle Minimap', click: () => send('view.toggleMinimap') },
+    { label: 'Toggle Sticky Scroll', click: () => send('view.toggleStickyScroll') },
     { label: 'Toggle Status Bar', click: () => send('view.toggleStatusBar') }
   ];
 }
@@ -511,7 +522,7 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
-        { label: 'About Lumen', click: () => send('help.about') }
+        { label: 'About Lumen Text', click: () => send('help.about') }
       ]
     }
   ];
@@ -878,6 +889,17 @@ ipcMain.handle('shell:openExternal', (_e, url) => {
 ipcMain.handle('win:new', async (_e, openPath) => {
   createWindow(openPath);
 });
+ipcMain.handle('win:newConfig', async (_e, name) => {
+  createWindow(undefined, { config: name });
+});
+// A config save in one window -> tell every OTHER window to re-read that config.
+ipcMain.handle('config:changed', (e, kind) => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents !== e.sender && !win.webContents.isDestroyed()) {
+      win.webContents.send('config-reload', kind);
+    }
+  }
+});
 ipcMain.handle('win:close', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win) win.close();
@@ -899,24 +921,67 @@ ipcMain.handle('project:clearRecent', () => {
   return [];
 });
 
-// ---------------------------------------------------------------------------
-app.whenReady().then(() => {
-  store = new Store(path.join(app.getPath('userData'), 'state.json'), {
-    session: null,
-    recent: [],
-    settings: {}
-  });
-  buildMenu();
-  // Support: `lumen <path>` (skip flags and the "." app-root arg)
-  const arg = process.argv
-    .slice(1)
-    .find((a) => !a.startsWith('-') && a !== '.' && path.resolve(a) !== __dirname && fs.existsSync(a));
-  createWindow(arg ? path.resolve(arg) : undefined);
+// Resolve a real file/folder path from a process argv (skip flags and the "."
+// app-root arg). Relative paths resolve against `cwd` so a second instance
+// launched from another directory still points at the right file.
+function fileArgFrom(argv, cwd) {
+  const base = cwd || process.cwd();
+  for (const a of argv.slice(1)) {
+    if (a.startsWith('-') || a === '.') continue;
+    const resolved = path.resolve(base, a);
+    if (resolved === __dirname) continue;
+    if (fs.existsSync(resolved)) return resolved;
+  }
+  return null;
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// Pick the window that a forwarded file should open in: the focused editor
+// window if any, else the most recently created one. Config windows (Settings /
+// Key Bindings) are never chosen.
+function pickEditorWindow() {
+  const editors = [...windows].filter((w) => !w._isConfig && !w.isDestroyed());
+  if (!editors.length) return null;
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused._isConfig && !focused.isDestroyed()) return focused;
+  return editors[editors.length - 1];
+}
+
+// Single-instance: if Lumen Text is already running, hand the file to the live
+// instance (open it in the current window) instead of launching a new one.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    const target = fileArgFrom(argv, workingDirectory);
+    const win = pickEditorWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      if (target) win.webContents.send('open-path', target);
+    } else {
+      createWindow(target || undefined);
+    }
   });
-});
+
+  // -------------------------------------------------------------------------
+  app.whenReady().then(() => {
+    store = new Store(path.join(app.getPath('userData'), 'state.json'), {
+      session: null,
+      recent: [],
+      settings: {}
+    });
+    buildMenu();
+    // Support: `lumen-text <path>` (skip flags and the "." app-root arg)
+    const arg = fileArgFrom(process.argv, process.cwd());
+    createWindow(arg || undefined);
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('will-quit', () => {
   largefile.closeAll();

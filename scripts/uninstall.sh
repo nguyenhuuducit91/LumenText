@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Uninstall Lumen from the current OS (Ubuntu/Debian).
-#   - removes the "lumen" .deb package (NEVER touches "sublime-text", the real Sublime)
+# Uninstall Lumen Text from the current OS (Ubuntu/Debian).
+#   - removes the "lumen-text" .deb package (NEVER touches "sublime-text", the real Sublime)
 #   - refreshes desktop + icon caches so the launcher entry disappears
 #   - with --purge, also deletes the user data (settings / session / recent projects)
 #
 # Usage:
 #   sudo ./scripts/uninstall.sh            # remove the app, keep your settings
-#   sudo ./scripts/uninstall.sh --purge    # also delete ~/.config/Lumen (settings + session)
+#   sudo ./scripts/uninstall.sh --purge    # also delete ~/.config/Lumen Text (settings + session)
 #
 # Needs root (dpkg/apt). Re-runs the sudo'd part automatically if not root.
 
 set -euo pipefail
 
-PKG="lumen"                 # package name (package.json "name")
+PKG="lumen-text"            # package name (package.json "name")
 KEEP_PKG="sublime-text"     # the REAL Sublime Text — must stay installed
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -57,13 +57,13 @@ fi
 # 2) Optionally delete user data (settings / session / recent projects).
 if [ "$PURGE" -eq 1 ]; then
   log "Purging user data for: $REAL_USER ($REAL_HOME)"
-  for d in "$REAL_HOME/.config/Lumen" "$REAL_HOME/.config/lumen"; do
+  for d in "$REAL_HOME/.config/Lumen Text" "$REAL_HOME/.config/Lumen" "$REAL_HOME/.config/lumen"; do
     if [ -d "$d" ]; then
       rm -rf "$d" && echo "  deleted $d"
     fi
   done
 else
-  log "Keeping user data (~/.config/Lumen). Re-run with --purge to remove it."
+  log "Keeping user data (~/.config/Lumen Text). Re-run with --purge to remove it."
 fi
 
 # 3) Refresh desktop + icon caches so the launcher entry disappears.
@@ -88,5 +88,5 @@ ls /usr/share/applications/*[Ll]umen*.desktop >/dev/null 2>&1 \
 
 echo
 log "Done. If you also installed the AppImage, it's a standalone file — just delete it:"
-echo "     rm -f dist/Lumen-*.AppImage    # or wherever you kept it"
-log "Log out/in (or restart the shell) if the app menu still shows a cached 'Lumen' icon."
+echo "     rm -f dist/LumenText-*.AppImage    # or wherever you kept it"
+log "Log out/in (or restart the shell) if the app menu still shows a cached 'Lumen Text' icon."

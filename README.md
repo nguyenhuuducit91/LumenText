@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="img/icon.png" alt="Lumen" width="96" />
+<img src="img/icon.png" alt="Lumen Text" width="96" />
 
-# Lumen
+# Lumen Text
 
 ### A fast, lean **Sublime Text-style** code editor.
 
@@ -18,7 +18,7 @@ Built with **Electron + Monaco** (the editor core of VS Code), running on **Ubun
 
 ---
 
-## ✨ Why you'll love Lumen
+## ✨ Why you'll love Lumen Text
 
 - ⚡ **Light & fast** — instant startup, minimal UI true to Sublime Text.
 - 🎨 **Cohesive One Dark theme** — chrome (sidebar/tab/status) and editor share one color tone.
@@ -43,14 +43,14 @@ Built with **Electron + Monaco** (the editor core of VS Code), running on **Ubun
 
 **Option 1 — `.deb` package:**
 ```bash
-sudo apt install ./dist/"Lumen-0.1.0-x64.deb"
-# then open from the app menu, or: lumen <path>
+sudo apt install ./dist/"LumenText-0.1.0-x64.deb"
+# then open from the app menu, or: lumen-text <path>
 ```
 
 **Option 2 — AppImage (no install needed):**
 ```bash
-chmod +x "dist/Lumen-0.1.0-x64.AppImage"
-./"dist/Lumen-0.1.0-x64.AppImage"
+chmod +x "dist/LumenText-0.1.0-x64.AppImage"
+./"dist/LumenText-0.1.0-x64.AppImage"
 ```
 
 **Run from source:**
@@ -62,7 +62,7 @@ npm start          # or: npm run dev  (opens with DevTools)
 **Uninstall:**
 ```bash
 sudo ./scripts/uninstall.sh          # remove the app, keep your settings
-sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen (settings + session)
+sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen Text (settings + session)
 ```
 
 > If `npm install` can't fetch the Electron binary (a sandbox blocking postinstall),
@@ -142,7 +142,7 @@ sudo ./scripts/uninstall.sh --purge  # also delete ~/.config/Lumen (settings + s
 
 ## 💛 Support the developer
 
-Lumen is **free and open-source**. If it helps you code faster, please consider buying me a coffee — every contribution directly funds new features and fixes. 🙏
+Lumen Text is **free and open-source**. If it helps you code faster, please consider buying me a coffee — every contribution directly funds new features and fixes. 🙏
 
 <div align="center">
 
@@ -157,7 +157,7 @@ Lumen is **free and open-source**. If it helps you code faster, please consider 
 
 </div>
 
-You can also support by ⭐ **starring the repo** and sharing Lumen with friends!
+You can also support by ⭐ **starring the repo** and sharing Lumen Text with friends!
 
 ---
 
@@ -197,7 +197,7 @@ npm run dist:deb                # .deb only
 npm run dist:appimage           # AppImage only
 ```
 
-Artifacts land in `dist/`: `Lumen-0.1.0-x64.deb`, `Lumen-0.1.0-x64.AppImage`.
+Artifacts land in `dist/`: `LumenText-0.1.0-x64.deb`, `LumenText-0.1.0-x64.AppImage`.
 
 ---
 
@@ -221,9 +221,9 @@ Artifacts land in `dist/`: `Lumen-0.1.0-x64.deb`, `Lumen-0.1.0-x64.AppImage`.
 ## 🗂️ Project structure
 
 ```
-Lumen/
+LumenText/
 ├── main.js                 # Electron main: window, menu, IPC, IME flags
-├── preload.js              # secure contextBridge (window.lumen)
+├── preload.js              # secure contextBridge (window.lumenText)
 ├── src/main/
 │   ├── store.js            # durable state.json (atomic write)
 │   └── largefile.js        # large-file streaming engine (sparse index)
@@ -256,6 +256,6 @@ See [docs/Architecture.md](docs/Architecture.md) for the process boundaries, lar
 
 Made with ♥ in Vietnam · MIT License · © 2026 Nguyễn Hữu Đức
 
-**If Lumen saves you time, a ⭐ and a ☕ go a long way!**
+**If Lumen Text saves you time, a ⭐ and a ☕ go a long way!**
 
 </div>

@@ -29,7 +29,7 @@ LUM.lsp = (function () {
     if (!available || !root || !eligible(buf)) return;
     const uri = uriOf(buf.path);
     versions.set(uri, 1);
-    window.lumen.lspDidOpen(root, uri, buf.model.getLanguageId(), 1, buf.model.getValue());
+    window.lumenText.lspDidOpen(root, uri, buf.model.getLanguageId(), 1, buf.model.getValue());
   }
   function onChange(buf) {
     if (!available || !root || !eligible(buf)) return;
@@ -39,7 +39,7 @@ LUM.lsp = (function () {
       changeTimers.delete(uri);
       const v = (versions.get(uri) || 1) + 1;
       versions.set(uri, v);
-      window.lumen.lspDidChange(root, uri, v, buf.model.getValue());
+      window.lumenText.lspDidChange(root, uri, v, buf.model.getValue());
     }, 350));
   }
 
@@ -51,7 +51,7 @@ LUM.lsp = (function () {
     changeTimers.delete(uri);
     const v = (versions.get(uri) || 1) + 1;
     versions.set(uri, v);
-    window.lumen.lspDidChange(root, uri, v, model.getValue());
+    window.lumenText.lspDidChange(root, uri, v, model.getValue());
   }
 
   // A buffer was closed — tell the server and drop its bookkeeping so a later
@@ -63,7 +63,7 @@ LUM.lsp = (function () {
     clearTimeout(changeTimers.get(uri));
     changeTimers.delete(uri);
     versions.delete(uri);
-    if (available) window.lumen.lspDidClose(root, uri);
+    if (available) window.lumenText.lspDidClose(root, uri);
   }
 
   function bufForModel(model) {
@@ -123,7 +123,7 @@ LUM.lsp = (function () {
         if (!available || !root || !buf) return { suggestions: [] };
         const uri = uriOf(buf.path);
         flush(uri, model); // send pending edits so the server sees current text
-        const res = await window.lumen.lspCompletion(root, uri,
+        const res = await window.lumenText.lspCompletion(root, uri,
           { line: position.lineNumber - 1, character: position.column - 1 });
         const items = (res && (res.items || res)) || [];
         const word = model.getWordUntilPosition(position);
@@ -170,7 +170,7 @@ LUM.lsp = (function () {
         if (!available || !root || !buf) return null;
         const uri = uriOf(buf.path);
         flush(uri, model);
-        const res = await window.lumen.lspHover(root, uri,
+        const res = await window.lumenText.lspHover(root, uri,
           { line: position.lineNumber - 1, character: position.column - 1 });
         if (!res || !res.contents) return null;
         const c = res.contents;
@@ -189,7 +189,7 @@ LUM.lsp = (function () {
         if (!available || !root || !buf) return null;
         const uri = uriOf(buf.path);
         flush(uri, model);
-        const res = await window.lumen.lspDefinition(root, uri,
+        const res = await window.lumenText.lspDefinition(root, uri,
           { line: position.lineNumber - 1, character: position.column - 1 });
         return locsFromResult(res)
           .filter((l) => pathFromUri(l.uri) === buf.path) // only same-file for peek
@@ -224,7 +224,7 @@ LUM.lsp = (function () {
     const pos = ed.getPosition();
     const uri = uriOf(buf.path);
     flush(uri, buf.model);
-    const res = await window.lumen.lspDefinition(root, uri,
+    const res = await window.lumenText.lspDefinition(root, uri,
       { line: pos.lineNumber - 1, character: pos.column - 1 });
     const locs = locsFromResult(res);
     if (!locs.length) { LUM.app.toast('No definition found'); return; }
@@ -242,8 +242,8 @@ LUM.lsp = (function () {
   }
 
   async function init() {
-    try { available = await window.lumen.lspAvailable(); } catch { available = false; }
-    window.lumen.onLspDiagnostics(onDiagnostics);
+    try { available = await window.lumenText.lspAvailable(); } catch { available = false; }
+    window.lumenText.onLspDiagnostics(onDiagnostics);
     registerProviders();
     if (available) {
       const st = document.getElementById('status-lsp');

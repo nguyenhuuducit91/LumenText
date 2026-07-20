@@ -29,27 +29,27 @@ LUM.symbols = (function () {
     if (index) return index;
     if (building) return building;
     const myGen = gen;
-    const sep = window.lumen.sep;
+    const sep = window.lumenText.sep;
     const multi = roots.length > 1;
     building = (async () => {
       const out = [];
       const seen = new Set();
       outer:
       for (const root of roots) {
-        const prefix = multi ? window.lumen.basename(root) + '/' : '';
-        const files = await window.lumen.walk(root, 8000);
+        const prefix = multi ? window.lumenText.basename(root) + '/' : '';
+        const files = await window.lumenText.walk(root, 8000);
         if (myGen !== gen) return index || []; // invalidated mid-build
         for (const f of files) {
           if (seen.has(f.path)) continue;
           seen.add(f.path);
-          const ext = window.lumen.extname(f.name).toLowerCase();
+          const ext = window.lumenText.extname(f.name).toLowerCase();
           const isMd = ext === '.md' || ext === '.markdown';
           if (!CODE_EXT.has(ext) && !isMd) continue;
           let content;
           try {
-            const st = await window.lumen.stat(f.path);
+            const st = await window.lumenText.stat(f.path);
             if (!st.exists || st.size > 2 * 1024 * 1024) continue;
-            content = (await window.lumen.readFile(f.path)).content;
+            content = (await window.lumenText.readFile(f.path)).content;
           } catch { continue; }
           if (myGen !== gen) return index || [];
           const rel = prefix + (f.path.startsWith(root + sep) ? f.path.slice(root.length + 1) : f.path);

@@ -82,10 +82,10 @@ LUM.snippets = (function () {
       '[\n' +
       '  { "prefix": "hola", "scope": "*", "body": "console.log(\\"hello $1\\")$0", "description": "demo snippet" }\n' +
       ']\n';
-    userFile = await window.lumen.configEnsure('Snippets.json', tmpl);
+    userFile = await window.lumenText.configEnsure('Snippets.json', tmpl);
     let user = [];
     try {
-      const { content } = await window.lumen.readFile(userFile);
+      const { content } = await window.lumenText.readFile(userFile);
       user = parseJsonc(content) || [];
     } catch (e) {
       user = [];

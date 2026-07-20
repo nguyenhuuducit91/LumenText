@@ -99,7 +99,7 @@ LUM.invisibles = (function () {
   }
 
   function persist() {
-    try { window.lumen.stateSet('invisibles', { ...state }); } catch { /* ignore */ }
+    try { window.lumenText.stateSet('invisibles', { ...state }); } catch { /* ignore */ }
   }
 
   const LABELS = {
@@ -139,7 +139,7 @@ LUM.invisibles = (function () {
   // Restore persisted state on boot and apply to the editors.
   async function init() {
     try {
-      const saved = await window.lumen.stateGet('invisibles', null);
+      const saved = await window.lumenText.stateGet('invisibles', null);
       if (saved && typeof saved === 'object') {
         // Only pull keys we still recognise (drops obsolete flags cleanly).
         for (const k of Object.keys(state)) if (k in saved) state[k] = !!saved[k];

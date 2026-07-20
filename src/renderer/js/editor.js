@@ -58,7 +58,7 @@ LUM.editor = (function () {
       guides: { indentation: true, highlightActiveIndentation: true, bracketPairs: false },
       autoClosingBrackets: 'languageDefined',
       renderLineHighlight: 'line', // ST highlights the line, not the whole gutter
-      stickyScroll: { enabled: true },
+      stickyScroll: { enabled: false }, // controlled by the sticky_scroll setting (see settings.js)
       scrollBeyondLastLine: true,
       wordWrap: 'off',
       glyphMargin: true, // bookmarks live here
@@ -274,7 +274,7 @@ LUM.editor = (function () {
     // A new preview replaces the existing preview tab, in its place.
     const replaceId = preview ? currentPreviewId() : null;
     try {
-      const st = await window.lumen.stat(filePath);
+      const st = await window.lumenText.stat(filePath);
       if (st.exists && st.large) {
         // Route huge files to the streaming viewer instead of a Monaco model.
         await LUM.largefile.openInTab(filePath);
@@ -283,8 +283,8 @@ LUM.editor = (function () {
         if (replaceId != null && lb && replaceId !== lb.id) await closeBuffer(replaceId);
         return lb;
       }
-      const { content, mtimeMs, encoding } = await window.lumen.readFile(filePath);
-      const name = window.lumen.basename(filePath);
+      const { content, mtimeMs, encoding } = await window.lumenText.readFile(filePath);
+      const name = window.lumenText.basename(filePath);
       const buf = makeBuffer(name, content, detectLanguage(name), filePath, mtimeMs, encoding);
       if (preview) buf.preview = true;
       if (replaceId != null && replaceId !== buf.id) {
@@ -308,7 +308,7 @@ LUM.editor = (function () {
     buf = buf || activeBuffer();
     if (!buf) return;
     if (!buf.path) return saveBufferAs(buf);
-    const { mtimeMs } = await window.lumen.writeFile(buf.path, buf.model.getValue(), buf.encoding);
+    const { mtimeMs } = await window.lumenText.writeFile(buf.path, buf.model.getValue(), buf.encoding);
     buf.mtimeMs = mtimeMs;
     buf.dirty = false;
     renderTabs();
@@ -323,17 +323,17 @@ LUM.editor = (function () {
   async function saveBufferAs(buf) {
     buf = buf || activeBuffer();
     if (!buf) return;
-    const suggested = buf.path || (LUM.sidebar.root ? window.lumen.join(LUM.sidebar.root, buf.name) : buf.name);
-    const target = await window.lumen.saveFileDialog(suggested);
+    const suggested = buf.path || (LUM.sidebar.root ? window.lumenText.join(LUM.sidebar.root, buf.name) : buf.name);
+    const target = await window.lumenText.saveFileDialog(suggested);
     if (!target) return;
-    await window.lumen.writeFile(target, buf.model.getValue(), buf.encoding);
+    await window.lumenText.writeFile(target, buf.model.getValue(), buf.encoding);
     buf.path = target;
-    buf.name = window.lumen.basename(target);
+    buf.name = window.lumenText.basename(target);
     const lang = detectLanguage(buf.name);
     monaco.editor.setModelLanguage(buf.model, lang);
     buf.language = lang;
     buf.dirty = false;
-    const st = await window.lumen.stat(target);
+    const st = await window.lumenText.stat(target);
     buf.mtimeMs = st.mtimeMs;
     renderTabs();
     updateStatus();
@@ -390,7 +390,7 @@ LUM.editor = (function () {
 
     if (buf.kind === 'large') {
       LUM.largefile.hide();
-      window.lumen.lfClose(buf.lf.id);
+      window.lumenText.lfClose(buf.lf.id);
     } else if (buf.model) {
       if (LUM.lsp && LUM.lsp.onClose) LUM.lsp.onClose(buf); // notify LSP before disposal
       if (LUM.bookmarks && LUM.bookmarks.dispose) LUM.bookmarks.dispose(id);
@@ -413,7 +413,7 @@ LUM.editor = (function () {
   // Reflect a filesystem rename/move into any open buffer. Handles both a file
   // being renamed and a parent folder being renamed (path-prefix match).
   function applyPathChange(oldPath, newPath) {
-    const sep = window.lumen.sep;
+    const sep = window.lumenText.sep;
     let changed = false;
     for (const id of order) {
       const b = buffers.get(id);
@@ -423,7 +423,7 @@ LUM.editor = (function () {
       else if (b.path.startsWith(oldPath + sep)) np = newPath + b.path.slice(oldPath.length);
       if (np == null) continue;
       b.path = np;
-      b.name = window.lumen.basename(np);
+      b.name = window.lumenText.basename(np);
       b.deletedOnDisk = false;
       if (b.model) {
         const lang = detectLanguage(b.name);
@@ -437,7 +437,7 @@ LUM.editor = (function () {
 
   // Mark buffers under a deleted path as gone-on-disk (kept open, now unsaved).
   function markPathDeleted(delPath) {
-    const sep = window.lumen.sep;
+    const sep = window.lumenText.sep;
     let changed = false;
     for (const id of order) {
       const b = buffers.get(id);
@@ -657,7 +657,7 @@ LUM.editor = (function () {
     const buf = activeBuffer();
     if (!buf || !buf.path || buf.kind !== 'text') return;
     try {
-      const { content, mtimeMs } = await window.lumen.readFile(buf.path, buf.encoding);
+      const { content, mtimeMs } = await window.lumenText.readFile(buf.path, buf.encoding);
       const ed = activeEditor();
       const vs = ed && ed.saveViewState();
       buf.model.setValue(content);
@@ -689,7 +689,7 @@ LUM.editor = (function () {
   // it afterwards.
   async function reloadFromDisk(b) {
     try {
-      const { content, mtimeMs } = await window.lumen.readFile(b.path, b.encoding);
+      const { content, mtimeMs } = await window.lumenText.readFile(b.path, b.encoding);
       let ed = null, vs = null;
       for (const p of panes) if (p.currentId === b.id) { ed = p.editor; vs = ed.saveViewState(); }
       b.model.setValue(content);
@@ -715,7 +715,7 @@ LUM.editor = (function () {
         const b = buffers.get(id);
         if (!b || !b.path || b.kind !== 'text') continue;
         let st;
-        try { st = await window.lumen.stat(b.path); } catch { continue; }
+        try { st = await window.lumenText.stat(b.path); } catch { continue; }
         if (!st.exists) {
           if (!b.deletedOnDisk) { b.deletedOnDisk = true; b.dirty = true; renderTabs(); updateStatus(); }
           continue;
@@ -753,7 +753,7 @@ LUM.editor = (function () {
     const buf = activeBuffer();
     if (!buf || !buf.path || buf.kind !== 'text') return;
     try {
-      const { content, mtimeMs } = await window.lumen.readFile(buf.path, enc);
+      const { content, mtimeMs } = await window.lumenText.readFile(buf.path, enc);
       const ed = activeEditor();
       const vs = ed && ed.saveViewState();
       buf.model.setValue(content);
@@ -784,7 +784,7 @@ LUM.editor = (function () {
     while (closedStack.length) {
       const info = closedStack.pop();
       if (order.some((id) => buffers.get(id).path === info.path)) continue; // already reopened
-      const exists = await window.lumen.stat(info.path).then((s) => s.exists).catch(() => false);
+      const exists = await window.lumenText.stat(info.path).then((s) => s.exists).catch(() => false);
       if (!exists) continue;
       const buf = await openPath(info.path);
       if (!buf) continue;

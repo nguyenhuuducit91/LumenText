@@ -216,10 +216,10 @@ LUM.app = (function () {
     def('file.saveAs', 'Save As…', 'File', 'Ctrl+Shift+S', () => E.saveBufferAs());
     def('file.saveAll', 'Save All', 'File', 'Ctrl+Alt+S', () => E.saveAll());
     def('file.closeTab', 'Close Tab', 'File', 'Ctrl+W', () => E.closeBuffer());
-    def('file.newWindow', 'New Window', 'File', 'Ctrl+Shift+N', () => window.lumen.newWindow());
+    def('file.newWindow', 'New Window', 'File', 'Ctrl+Shift+N', () => window.lumenText.newWindow());
     def('file.openRecent', 'Open Recent…', 'File', '', openRecent);
     def('file.reopenClosed', 'Reopen Closed File', 'File', 'Ctrl+Shift+T', () => E.reopenClosed());
-    def('file.closeWindow', 'Close Window', 'File', 'Ctrl+Shift+W', () => window.lumen.closeWindow());
+    def('file.closeWindow', 'Close Window', 'File', 'Ctrl+Shift+W', () => window.lumenText.closeWindow());
     def('file.revert', 'Revert File', 'File', '', () => E.revertActive());
     def('file.reopenEncoding', 'Reopen with Encoding…', 'File', '', () => pickEncoding('reopen'));
     def('file.saveEncoding', 'Save with Encoding…', 'File', '', () => pickEncoding('save'));
@@ -228,7 +228,7 @@ LUM.app = (function () {
 
     // Sidebar file operations (also reachable from the tree context menu).
     const S = LUM.sidebar;
-    const sideDir = async () => { const t = S.commandTarget(); return (await S.isDirPath(t)) ? t : window.lumen.dirname(t); };
+    const sideDir = async () => { const t = S.commandTarget(); return (await S.isDirPath(t)) ? t : window.lumenText.dirname(t); };
     def('side.newFile', 'New File in Folder', 'Sidebar', '', async () => S.startCreate(await sideDir(), false));
     def('side.newFolder', 'New Folder', 'Sidebar', '', async () => S.startCreate(await sideDir(), true));
     // No default key: F2 is Next Bookmark (Sublime). Rename via context menu / palette.
@@ -384,6 +384,7 @@ LUM.app = (function () {
     def('view.fontLarger', 'Font: Larger', 'View', 'Ctrl+=', () => bumpFont(1));
     def('view.fontSmaller', 'Font: Smaller', 'View', 'Ctrl+-', () => bumpFont(-1));
     def('view.fontReset', 'Font: Reset', 'View', 'Ctrl+0', () => setFontSize(LUM.settings.DEFAULTS.font_size));
+    def('view.fontChoose', 'Font: Choose…', 'View', '', chooseFont);
     def('view.toggleStatusBar', 'Toggle Status Bar', 'View', '', () => document.body.classList.toggle('hide-statusbar'));
     def('view.toggleTabs', 'Toggle Tabs', 'View', '', () => { document.body.classList.toggle('hide-tabs'); setTimeout(() => LUM.editor.layout(), 0); });
 
@@ -397,6 +398,7 @@ LUM.app = (function () {
 
     def('view.toggleSidebar', 'Toggle Sidebar', 'View', 'Ctrl+B', toggleSidebar);
     def('view.toggleMinimap', 'Toggle Minimap', 'View', '', toggleMinimap);
+    def('view.toggleStickyScroll', 'Toggle Sticky Scroll', 'View', '', toggleStickyScroll);
     def('view.split1', 'Layout: Single', 'View', 'Alt+Shift+1', () => E.setLayout(1));
     def('view.split2', 'Layout: Columns: 2', 'View', 'Alt+Shift+2', () => E.setLayout(2));
     def('view.split3', 'Layout: Columns: 3', 'View', 'Alt+Shift+3', () => E.setLayout(3));
@@ -429,7 +431,7 @@ LUM.app = (function () {
     def('tab.closeAll', 'Close All Tabs', 'Tabs', '', () => LUM.editor.closeAll());
     def('tab.copyPath', 'Copy File Path', 'Tabs', '', () => copyPath(false));
     def('tab.copyRelPath', 'Copy Relative Path', 'Tabs', '', () => copyPath(true));
-    def('tab.reveal', 'Reveal in File Manager', 'Tabs', '', () => { const b = LUM.editor.activeBuffer(); if (b && b.path) window.lumen.showItem(b.path); });
+    def('tab.reveal', 'Reveal in File Manager', 'Tabs', '', () => { const b = LUM.editor.activeBuffer(); if (b && b.path) window.lumenText.showItem(b.path); });
     def('tab.pin', 'Pin / Unpin Tab', 'Tabs', '', () => togglePin(activeId()));
 
     // Project files (.sublime-project) — see LUM.project
@@ -468,7 +470,7 @@ LUM.app = (function () {
     def('view.zen', 'Toggle Distraction-Free Mode', 'View', 'Shift+F11', toggleZen);
     def('view.rulers', 'Toggle Rulers (80 / 120)', 'View', '', cycleRulers);
 
-    def('help.about', 'About Lumen', 'Help', '', showAbout);
+    def('help.about', 'About Lumen Text', 'Help', '', showAbout);
     def('help.donate', 'Support / Donate', 'Help', '', showAbout);
     def('help.ime', 'Vietnamese Input (fcitx) Help', 'Help', '', showImeHelp);
   }
@@ -483,7 +485,7 @@ LUM.app = (function () {
 
   // ---- command implementations -------------------------------------------
   async function openFiles() {
-    const paths = await window.lumen.openFileDialog();
+    const paths = await window.lumenText.openFileDialog();
     for (const p of paths) { await LUM.editor.openPath(p); pushRecent(p, 'file'); }
     LUM.sidebar.highlightActive();
   }
@@ -494,7 +496,7 @@ LUM.app = (function () {
     buf = buf || LUM.editor.activeBuffer();
     if (!buf || !buf.path) return;
     let p = buf.path;
-    if (rel && LUM.sidebar.root && p.startsWith(LUM.sidebar.root + window.lumen.sep)) p = p.slice(LUM.sidebar.root.length + 1);
+    if (rel && LUM.sidebar.root && p.startsWith(LUM.sidebar.root + window.lumenText.sep)) p = p.slice(LUM.sidebar.root.length + 1);
     try { await navigator.clipboard.writeText(p); } catch {}
     toast('Copied: ' + p);
   }
@@ -520,11 +522,11 @@ LUM.app = (function () {
       { label: 'Copy File Path', disabled: !b.path, run: () => copyPath(false, b) },
       { label: 'Copy Relative Path', disabled: !b.path, run: () => copyPath(true, b) },
       { label: 'Reveal in Sidebar', disabled: !b.path, run: () => { if (b.path) LUM.sidebar.revealInSidebar(b.path); } },
-      { label: 'Reveal in File Manager', disabled: !b.path, run: () => { if (b.path) window.lumen.showItem(b.path); } }
+      { label: 'Reveal in File Manager', disabled: !b.path, run: () => { if (b.path) window.lumenText.showItem(b.path); } }
     ], x, y);
   }
   async function openFolder() {
-    const dir = await window.lumen.openFolderDialog();
+    const dir = await window.lumenText.openFolderDialog();
     if (dir) await LUM.sidebar.openFolder(dir);
   }
 
@@ -540,6 +542,12 @@ LUM.app = (function () {
     // Persist so a later settings re-apply (font bump, autosave change) doesn't
     // snap the minimap back to the saved baseline.
     LUM.settings.set('minimap', LUM.state.minimap);
+  }
+  function toggleStickyScroll() {
+    const next = !LUM.settings.get('sticky_scroll', false);
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ stickyScroll: { enabled: next } }));
+    LUM.settings.set('sticky_scroll', next); // persist so it survives a settings re-apply
+    toast('Sticky scroll: ' + (next ? 'on' : 'off'));
   }
   function toggleWordWrap() {
     const next = !LUM.settings.get('word_wrap', false);
@@ -562,6 +570,55 @@ LUM.app = (function () {
   function bumpFont(delta) {
     if (fontSizeCur == null) fontSizeCur = LUM.settings.get('font_size', LUM.settings.DEFAULTS.font_size) || 13;
     setFontSize(fontSizeCur + delta);
+  }
+
+  // The first family in the configured font stack (what "current" means to the user).
+  function currentFontFamily() {
+    const ff = LUM.settings.get('font_family', LUM.settings.DEFAULTS.font_family) || '';
+    return (ff.split(',')[0] || '').replace(/["']/g, '').trim();
+  }
+  // Is a font family actually installed? Measure a probe string against the three
+  // generic fallbacks; if any width changes when the family is prepended, it rendered.
+  function fontAvailable(family) {
+    const ctx = fontAvailable._ctx || (fontAvailable._ctx = document.createElement('canvas').getContext('2d'));
+    const text = 'mmmmmmmmmmlliI0Oo1', px = '72px';
+    return ['monospace', 'serif', 'sans-serif'].some((g) => {
+      ctx.font = `${px} ${g}`;
+      const base = ctx.measureText(text).width;
+      ctx.font = `${px} "${family}", ${g}`;
+      return ctx.measureText(text).width !== base;
+    });
+  }
+  function applyFontFamily(family) {
+    LUM.editor.panes.forEach((p) => p.editor && p.editor.updateOptions({ fontFamily: family }));
+    document.documentElement.style.setProperty('--font-mono', family);
+    LUM.settings.set('font_family', family); // persist so it survives restarts / re-applies
+    toast('Font: ' + family);
+  }
+  // Font > Choose…: pick an installed monospace font (or type a custom family / size).
+  function chooseFont() {
+    const cur = currentFontFamily();
+    const CANDIDATES = [
+      'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Cascadia Mono', 'Source Code Pro',
+      'Hack', 'Ubuntu Mono', 'DejaVu Sans Mono', 'Liberation Mono', 'Roboto Mono',
+      'IBM Plex Mono', 'Inconsolata', 'Noto Sans Mono', 'Menlo', 'Monaco', 'Consolas', 'Courier New'
+    ];
+    const entries = [];
+    const seen = new Set();
+    const add = (f, label) => {
+      const key = f.toLowerCase();
+      if (!f || seen.has(key)) return;
+      seen.add(key);
+      entries.push({ label: label || (f + (f.toLowerCase() === cur.toLowerCase() ? '  ✓' : '')), run: () => applyFontFamily(f) });
+    };
+    if (cur) add(cur);                                   // current first
+    CANDIDATES.filter(fontAvailable).forEach((f) => add(f)); // only installed fonts
+    add('monospace');                                    // system default, always valid
+    entries.push({ label: 'Custom Font Family…', run: () =>
+      inlineInput('Font family (e.g. Fira Code)', (v) => { if (v && v.trim()) applyFontFamily(v.trim()); }) });
+    entries.push({ label: 'Font Size…', run: () =>
+      inlineInput('Font size (6–40)', (v) => { const n = parseInt(v, 10); if (!isNaN(n)) setFontSize(n); }) });
+    openPicker(entries, 'Choose Font');
   }
   // Paste over the selection, then reindent the PASTED block (Sublime behaviour).
   async function pasteAndIndent() {
@@ -737,11 +794,11 @@ LUM.app = (function () {
     const back = document.createElement('div');
     back.className = 'lum-modal-backdrop';
     back.innerHTML =
-      '<div class="lum-modal about-modal" role="dialog" aria-label="About Lumen">' +
+      '<div class="lum-modal about-modal" role="dialog" aria-label="About Lumen Text">' +
         '<button class="lum-modal-close" aria-label="Close">&times;</button>' +
         '<div class="about-hero">' +
-          '<div class="about-logo"><img src="img/icon.png" alt="Lumen" /></div>' +
-          '<h2 class="about-title">Lumen</h2>' +
+          '<div class="about-logo"><img src="img/icon.png" alt="Lumen Text" /></div>' +
+          '<h2 class="about-title">Lumen Text</h2>' +
           '<span class="about-ver">v0.1.0</span>' +
           '<p class="about-tagline">A fast, Sublime-style code editor — Electron + Monaco</p>' +
         '</div>' +
@@ -769,7 +826,7 @@ LUM.app = (function () {
           '</div>' +
           '<div class="about-section about-donate">' +
             '<h3 class="about-h3">♥ Support the developer</h3>' +
-            '<p class="about-donate-text">If Lumen helps you code faster, a small coffee keeps it improving. Thank you! 🙏</p>' +
+            '<p class="about-donate-text">If Lumen Text helps you code faster, a small coffee keeps it improving. Thank you! 🙏</p>' +
             '<div class="about-qr-row">' +
               '<figure class="about-qr-item"><img class="about-qr" src="img/qr-code-bank-donate.png" alt="Bank donate QR" onerror="this.closest(\'.about-qr-item\').style.display=\'none\'" /><figcaption class="about-qr-cap">Bank</figcaption></figure>' +
               '<figure class="about-qr-item"><img class="about-qr" src="img/paypal.png" alt="PayPal donate QR" onerror="this.closest(\'.about-qr-item\').style.display=\'none\'" /><figcaption class="about-qr-cap">PayPal</figcaption></figure>' +
@@ -788,7 +845,7 @@ LUM.app = (function () {
     back.querySelectorAll('a.about-row').forEach((a) => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
-        try { window.lumen.openExternal(a.getAttribute('href')); } catch { /* ignore */ }
+        try { window.lumenText.openExternal(a.getAttribute('href')); } catch { /* ignore */ }
       });
     });
     aboutEl = back;
@@ -905,34 +962,84 @@ LUM.app = (function () {
   // ---- menu command routing (from main process) ---------------------------
   let openedExplicit = false;
   function installMenuBridge() {
-    window.lumen.onMenuCommand((cmd, arg) => LUM.commands.run(cmd, arg));
-    window.lumen.onOpenPath(async (p) => {
+    window.lumenText.onMenuCommand((cmd, arg) => LUM.commands.run(cmd, arg));
+    window.lumenText.onOpenPath(async (p) => {
       openedExplicit = true; // a path/folder was passed on the command line
-      const st = await window.lumen.stat(p);
+      const st = await window.lumenText.stat(p);
       if (st.exists && st.isDir) await LUM.sidebar.openFolder(p);
       else await LUM.editor.openPath(p);
     });
   }
 
+  // Open a dropped/CLI path: folders go to the sidebar, files open as tabs.
+  async function openExternalPath(p) {
+    if (!p) return;
+    const st = await window.lumenText.stat(p);
+    if (!st.exists) { toast('No longer exists: ' + p); return; }
+    openedExplicit = true;
+    if (st.isDir) await LUM.sidebar.openFolder(p);
+    else await LUM.editor.openPath(p);
+  }
+
+  // ---- drag & drop (files/folders onto the window) ------------------------
+  function installDragDrop() {
+    const overlay = document.createElement('div');
+    overlay.id = 'drag-overlay';
+    overlay.innerHTML = '<div class="drag-overlay-inner">⤓ Drop files to open in Lumen Text</div>';
+    document.body.appendChild(overlay);
+
+    let depth = 0;
+    const isFileDrag = (e) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') !== -1;
+    const hide = () => { depth = 0; overlay.classList.remove('visible'); };
+
+    window.addEventListener('dragenter', (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      depth++;
+      overlay.classList.add('visible');
+    }, true);
+    window.addEventListener('dragover', (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }, true);
+    window.addEventListener('dragleave', (e) => {
+      if (!isFileDrag(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) hide();
+    }, true);
+    window.addEventListener('drop', async (e) => {
+      if (!isFileDrag(e)) return; // let Monaco handle internal text drops
+      e.preventDefault();
+      hide();
+      const paths = Array.from(e.dataTransfer.files || [])
+        .map((f) => window.lumenText.pathForFile(f))
+        .filter(Boolean);
+      for (const p of paths) {
+        try { await openExternalPath(p); } catch (err) { console.error('drop open failed', p, err); }
+      }
+    }, true);
+  }
+
   // ---- recent files / folders ---------------------------------------------
   let recentList = [];
   async function loadRecent() {
-    recentList = (await window.lumen.stateGet('recent', [])) || [];
+    recentList = (await window.lumenText.stateGet('recent', [])) || [];
   }
   function pushRecent(p, kind) {
     if (!p) return;
     recentList = recentList.filter((r) => r.path !== p);
     recentList.unshift({ path: p, kind });
     if (recentList.length > 25) recentList.length = 25;
-    window.lumen.stateSet('recent', recentList);
+    window.lumenText.stateSet('recent', recentList);
   }
   function openRecent() {
     if (!recentList.length) { toast('No recent files or folders'); return; }
     const entries = recentList.map((r) => ({
-      label: (r.kind === 'folder' ? '▸ ' : '') + window.lumen.basename(r.path),
+      label: (r.kind === 'folder' ? '▸ ' : '') + window.lumenText.basename(r.path),
       sub: r.path,
       run: async () => {
-        const st = await window.lumen.stat(r.path);
+        const st = await window.lumenText.stat(r.path);
         if (!st.exists) { toast('No longer exists: ' + r.path); return; }
         if (st.isDir) await LUM.sidebar.openFolder(r.path);
         else await LUM.editor.openPath(r.path);
@@ -976,27 +1083,30 @@ LUM.app = (function () {
     };
   }
   function saveSessionSoon() {
+    // A dedicated config window (Settings / Key Bindings) must never overwrite
+    // the shared session, or its split would return on the next normal launch.
+    if (window.lumenText.openConfigOnStart) return;
     clearTimeout(sessionTimer);
-    sessionTimer = setTimeout(() => window.lumen.stateSet('session', captureSession()), 600);
+    sessionTimer = setTimeout(() => window.lumenText.stateSet('session', captureSession()), 600);
   }
   async function restoreSession() {
-    const s = await window.lumen.stateGet('session', null);
+    const s = await window.lumenText.stateGet('session', null);
     if (!s) return false;
     // Restore project file if present, else the raw root folder(s).
     if (s.project) {
-      const st = await window.lumen.stat(s.project);
+      const st = await window.lumenText.stat(s.project);
       if (st.exists && !st.isDir) await LUM.project.openPath(s.project);
     } else {
       const dirs = (s.folders && s.folders.length) ? s.folders : (s.folder ? [s.folder] : []);
       const existing = [];
       for (const d of dirs) {
-        const st = await window.lumen.stat(d);
+        const st = await window.lumenText.stat(d);
         if (st.exists && st.isDir) existing.push(d);
       }
       if (existing.length) await LUM.sidebar.setRoots(existing);
     }
     for (const f of s.files || []) {
-      const st = await window.lumen.stat(f.path);
+      const st = await window.lumenText.stat(f.path);
       if (st.exists && !st.isDir) await LUM.editor.openPath(f.path);
     }
     if (s.active) {
@@ -1066,6 +1176,11 @@ LUM.app = (function () {
     LUM.settings.load()
       .catch((e) => console.error('settings load failed', e))
       .finally(() => { if (LUM.invisibles) LUM.invisibles.init(); }); // apply invisibles after settings baseline
+    // Re-read config when another window (the Preferences window) saves it.
+    window.lumenText.onConfigReload((kind) => {
+      if (kind === 'keymap') { if (LUM.keymap) LUM.keymap.load(); }
+      else LUM.settings.load().catch((e) => console.error('settings reload failed', e));
+    });
     LUM.snippets.load().catch((e) => console.error('snippets load failed', e));
     if (LUM.lsp) LUM.lsp.init();
 
@@ -1102,19 +1217,33 @@ LUM.app = (function () {
     // so external edits reload (clean) or prompt (dirty) instead of being lost.
     window.addEventListener('focus', () => { if (LUM.editor.checkExternalChanges) LUM.editor.checkExternalChanges(); });
 
+    // ---- Drag & drop: drop files/folders onto the window to open them --------
+    // Files -> open as tabs; folders -> open in the sidebar. Uses capture phase
+    // so it wins over Monaco's own drop handling; internal text drags (no
+    // 'Files' type) pass straight through untouched.
+    installDragDrop();
+
     // Persist session on quit as a last-chance safety net (in addition to the
     // debounced saves triggered by tab/folder changes).
-    window.addEventListener('beforeunload', () => window.lumen.stateSet('session', captureSession()));
+    window.addEventListener('beforeunload', () => {
+      if (window.lumenText.openConfigOnStart) return; // config window: don't clobber the shared session
+      window.lumenText.stateSet('session', captureSession());
+    });
 
-    // Initial content: explicit CLI arg > restored session > empty document.
-    // The initial path is read synchronously (no race with session restore).
-    const initial = window.lumen.initialPath;
+    // Initial content: settings window > explicit CLI arg > restored session >
+    // empty document. The initial path is read synchronously (no session race).
+    const initial = window.lumenText.initialPath;
     LUM.editor.updateStatus();
     (async () => {
       try {
-        if (initial) {
+        const cfg = window.lumenText.openConfigOnStart;
+        if (cfg === 'settings' || cfg === 'keymap') {
+          openedExplicit = true; // dedicated Preferences window — don't restore a session here
+          if (cfg === 'settings') await LUM.settings.buildSettingsView();
+          else await LUM.keymap.buildKeymapView();
+        } else if (initial) {
           openedExplicit = true;
-          const st = await window.lumen.stat(initial);
+          const st = await window.lumenText.stat(initial);
           if (st.exists && st.isDir) await LUM.sidebar.openFolder(initial);
           else if (st.exists) await LUM.editor.openPath(initial);
         } else {

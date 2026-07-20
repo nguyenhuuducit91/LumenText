@@ -130,8 +130,8 @@ LUM.palette = (function () {
     const seen = new Set();
     const out = [];
     for (const root of roots) {
-      const files = await window.lumen.walk(root);
-      const prefix = multi ? window.lumen.basename(root) + '/' : '';
+      const files = await window.lumenText.walk(root);
+      const prefix = multi ? window.lumenText.basename(root) + '/' : '';
       for (const f of files) {
         if (seen.has(f.path)) continue;
         seen.add(f.path);

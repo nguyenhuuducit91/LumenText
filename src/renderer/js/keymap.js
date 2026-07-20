@@ -126,15 +126,15 @@ LUM.keymap = (function () {
       '// User key bindings (JSON array). Example:\n' +
       '// [ { "keys": ["ctrl+alt+u"], "command": "edit.upperCase" },\n' +
       '//   { "keys": ["ctrl+k", "ctrl+d"], "command": "edit.duplicateLine" } ]\n[\n]\n';
-    userFile = await window.lumen.configEnsure('Preferences.sublime-keymap', tmpl);
-    defaultFile = await window.lumen.configWriteDefault('Default.sublime-keymap', defaultKeymapText());
+    userFile = await window.lumenText.configEnsure('Preferences.sublime-keymap', tmpl);
+    defaultFile = await window.lumenText.configWriteDefault('Default.sublime-keymap', defaultKeymapText());
   }
 
   async function load() {
     await ensurePaths();
     let arr = [];
     try {
-      const { content } = await window.lumen.readFile(userFile);
+      const { content } = await window.lumenText.readFile(userFile);
       arr = parseJsonc(content) || [];
     } catch (e) {
       console.warn('keymap parse failed', e);
@@ -149,10 +149,19 @@ LUM.keymap = (function () {
     if (filePath && filePath === userFile) {
       await load();
       LUM.app.toast(`Key bindings reloaded (${seqs.length} user binding${seqs.length === 1 ? '' : 's'})`);
+      // Live-apply to every other open window too (main editor, etc.).
+      try { window.lumenText.notifyConfigChanged('keymap'); } catch { /* ignore */ }
     }
   }
 
+  // Preferences > Key Bindings: open a dedicated window with the Default | User
+  // split (Sublime-style), leaving the working window's layout untouched.
   async function openUI() {
+    await window.lumenText.newConfigWindow('keymap');
+  }
+
+  // Runs inside the keymap window on boot: build the 2-pane Default | User view.
+  async function buildKeymapView() {
     await ensurePaths();
     LUM.editor.setLayout(2);
     LUM.editor.setActivePane(0);
@@ -168,6 +177,6 @@ LUM.keymap = (function () {
     load();
   }
 
-  return { init, load, openUI, reloadIfKeymapFile, userFilePath: () => userFile,
+  return { init, load, openUI, buildKeymapView, reloadIfKeymapFile, userFilePath: () => userFile,
     _dispatch: onKeydown };
 })();

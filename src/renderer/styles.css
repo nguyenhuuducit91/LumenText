@@ -555,6 +555,21 @@ body.zen .sfind { display: none; }
 ::-webkit-scrollbar-thumb:hover { background: #4a5560; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* ---------------- Drag & drop overlay ---------------- */
+#drag-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .45); pointer-events: none;
+}
+#drag-overlay.visible { display: flex; }
+#drag-overlay .drag-overlay-inner {
+  padding: 28px 44px; border-radius: 14px;
+  border: 2px dashed var(--accent);
+  background: var(--bg-elev); color: var(--fg);
+  font-size: 16px; font-weight: 600; letter-spacing: .2px;
+  box-shadow: var(--shadow);
+}
+
 /* ---------------- About / Donate modal ---------------- */
 .lum-modal-backdrop {
   position: fixed; inset: 0; z-index: 400;

@@ -55,7 +55,7 @@ LUM.findInFiles = (function () {
       return;
     }
     els.panel.classList.remove('hidden');
-    els.query.placeholder = scopeDir ? 'Find in ' + window.lumen.basename(scopeDir) + '…' : 'Find in Files…';
+    els.query.placeholder = scopeDir ? 'Find in ' + window.lumenText.basename(scopeDir) + '…' : 'Find in Files…';
     // seed from current selection if any
     const ed = LUM.editor.activeEditor();
     if (ed && ed.getModel) {
@@ -92,7 +92,7 @@ LUM.findInFiles = (function () {
       const roots = scopeDir ? [scopeDir] : LUM.sidebar.roots;
       let agg = { files: [], total: 0, scanned: 0, truncated: false };
       for (const root of roots) {
-        const res = await window.lumen.searchInFiles(root, q, opts);
+        const res = await window.lumenText.searchInFiles(root, q, opts);
         if (res && res.error) { els.summary.textContent = res.error; return; }
         if (!res) continue;
         agg.files.push(...res.files);
@@ -131,7 +131,7 @@ LUM.findInFiles = (function () {
     for (const f of res.files) {
       const head = document.createElement('div');
       head.className = 'find-file';
-      const ico = LUM.icons ? LUM.icons.file(window.lumen.basename(f.path)) : '';
+      const ico = LUM.icons ? LUM.icons.file(window.lumenText.basename(f.path)) : '';
       head.innerHTML = `<span class="tree-ico">${ico}</span>${esc(f.rel)} <span class="fc">${f.matches.length}</span>`;
       head.addEventListener('click', () => openAt(f.path, f.matches[0].line, f.matches[0].col));
       frag.appendChild(head);

@@ -17,6 +17,7 @@ LUM.settings = (function () {
     word_wrap: false,
     theme: 'stp-mariana',
     minimap: true,
+    sticky_scroll: false,        // Sublime has no sticky scroll; off by default
     line_numbers: true,
     render_whitespace: 'selection',
     rulers: [],
@@ -40,6 +41,7 @@ LUM.settings = (function () {
       insertSpaces: s.translate_tabs_to_spaces,
       wordWrap: s.word_wrap ? 'on' : 'off',
       minimap: { enabled: s.minimap, renderCharacters: true, showSlider: 'mouseover', maxColumn: 80 },
+      stickyScroll: { enabled: !!s.sticky_scroll },
       lineNumbers: s.line_numbers ? 'on' : 'off',
       renderWhitespace: s.render_whitespace,
       rulers: Array.isArray(s.rulers) ? s.rulers : [],
@@ -81,8 +83,8 @@ LUM.settings = (function () {
     const template =
       '// User settings — override defaults here. See the left pane for all keys.\n' +
       '{\n  "font_size": 14,\n  "tab_size": 4\n}\n';
-    userFile = await window.lumen.configEnsure('Preferences.sublime-settings', template);
-    defaultFile = await window.lumen.configWriteDefault(
+    userFile = await window.lumenText.configEnsure('Preferences.sublime-settings', template);
+    defaultFile = await window.lumenText.configWriteDefault(
       'Default.sublime-settings',
       '// Default settings (read-only reference — edit the User pane on the right)\n' +
         JSON.stringify(DEFAULTS, null, 2) + '\n'
@@ -93,7 +95,7 @@ LUM.settings = (function () {
     await ensurePaths();
     let user = {};
     try {
-      const { content } = await window.lumen.readFile(userFile);
+      const { content } = await window.lumenText.readFile(userFile);
       user = parseJsonc(content) || {};
     } catch (e) {
       console.warn('settings parse failed, using defaults', e);
@@ -108,13 +110,23 @@ LUM.settings = (function () {
       try {
         await load();
         LUM.app.toast('Settings applied');
+        // Live-apply to every other open window too (main editor, etc.).
+        try { window.lumenText.notifyConfigChanged('settings'); } catch { /* ignore */ }
       } catch (e) {
         LUM.app.toast('Settings error: ' + e.message);
       }
     }
   }
 
+  // Preferences > Settings: open a dedicated window with the Default | User
+  // split (Sublime-style), so the working window's layout is never touched.
   async function openUI() {
+    await window.lumenText.newConfigWindow('settings');
+  }
+
+  // Runs inside the settings window on boot: build the 2-pane Default | User
+  // view. (Kept separate from openUI so the split only ever happens here.)
+  async function buildSettingsView() {
     await ensurePaths();
     LUM.editor.setLayout(2);
     LUM.editor.setActivePane(0);
@@ -139,19 +151,19 @@ LUM.settings = (function () {
       await ensurePaths();
       let user = {};
       try {
-        const { content } = await window.lumen.readFile(userFile);
+        const { content } = await window.lumenText.readFile(userFile);
         user = parseJsonc(content) || {};
       } catch (e) {
         user = {};
       }
       user[key] = value;
-      await window.lumen.writeFile(userFile, JSON.stringify(user, null, 2) + '\n');
+      await window.lumenText.writeFile(userFile, JSON.stringify(user, null, 2) + '\n');
       await load();
     }).catch((e) => console.error('settings.set failed', e));
     return setQueue;
   }
 
-  return { DEFAULTS, editorOptions, apply, load, openUI, reloadIfSettingsFile, get, set,
+  return { DEFAULTS, editorOptions, apply, load, openUI, buildSettingsView, reloadIfSettingsFile, get, set,
     userFilePath: () => userFile };
 })();
 

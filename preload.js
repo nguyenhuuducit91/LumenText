@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -11,12 +11,16 @@ const vsBase = pathToFileURL(
 ).href;
 
 const initialArg = process.argv.find((a) => a.startsWith('--stp-initial='));
+// A window launched in "config mode" boots straight into a Default | User split
+// for the named config ('settings' or 'keymap'), Sublime-style.
+const configArg = process.argv.find((a) => a.startsWith('--stp-config='));
 
-contextBridge.exposeInMainWorld('lumen', {
+contextBridge.exposeInMainWorld('lumenText', {
   vsBase,
   platform: process.platform,
   sep: path.sep,
   initialPath: initialArg ? initialArg.slice('--stp-initial='.length) : null,
+  openConfigOnStart: configArg ? configArg.slice('--stp-config='.length) : null,
 
   // path helpers (renderer has no `path` module)
   basename: (p) => path.basename(p),
@@ -26,6 +30,11 @@ contextBridge.exposeInMainWorld('lumen', {
   resolve: (...parts) => path.resolve(...parts),
   isAbsolute: (p) => path.isAbsolute(p),
   relative: (from, to) => path.relative(from, to),
+
+  // Resolve the absolute filesystem path of a dropped File (drag & drop).
+  // File.path was removed in Electron 32+, so webUtils.getPathForFile is the
+  // only supported way to recover it from a File object in the renderer.
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
 
   // dialogs
   openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
@@ -48,6 +57,7 @@ contextBridge.exposeInMainWorld('lumen', {
 
   // windows
   newWindow: (openPath) => ipcRenderer.invoke('win:new', openPath),
+  newConfigWindow: (name) => ipcRenderer.invoke('win:newConfig', name),
   closeWindow: () => ipcRenderer.invoke('win:close'),
 
   // recent projects (drives the native Project > Open Recent submenu)
@@ -61,6 +71,10 @@ contextBridge.exposeInMainWorld('lumen', {
 
   // config files (settings / keymap)
   userDataPath: () => ipcRenderer.invoke('app:userDataPath'),
+  // Broadcast/receive a config change ('settings' | 'keymap') so a save in the
+  // Preferences window live-applies to every other open window (Sublime-style).
+  notifyConfigChanged: (kind) => ipcRenderer.invoke('config:changed', kind),
+  onConfigReload: (cb) => ipcRenderer.on('config-reload', (_e, kind) => cb(kind)),
   configEnsure: (name, template) => ipcRenderer.invoke('config:ensure', name, template),
   configWriteDefault: (name, content) => ipcRenderer.invoke('config:writeDefault', name, content),
 

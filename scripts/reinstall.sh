@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Reinstall Lumen on the current OS (Ubuntu/Debian).
+# Reinstall Lumen Text on the current OS (Ubuntu/Debian).
 #   - removes the OLD package "sublime-text-plus" (NEVER touches "sublime-text", the real Sublime)
-#   - installs the freshly built Lumen .deb from dist/
+#   - installs the freshly built Lumen Text .deb from dist/
 #   - refreshes desktop + icon caches so the app menu shows the new name/icon
 #
 # Usage:  sudo ./scripts/reinstall.sh
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 OLD_PKG="sublime-text-plus"     # our previous package — safe to remove
-NEW_PKG="lumen"                 # new package name (package.json "name")
+NEW_PKG="lumen-text"            # new package name (package.json "name")
 KEEP_PKG="sublime-text"         # the REAL Sublime Text — must stay installed
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,9 +20,9 @@ log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Locate the newest Lumen*.deb
-DEB="$(ls -t "$DIST_DIR"/Lumen-*.deb 2>/dev/null | head -1 || true)"
-[ -n "$DEB" ] || die "No Lumen-*.deb found in $DIST_DIR. Run: npm run dist:deb"
+# Locate the newest LumenText*.deb
+DEB="$(ls -t "$DIST_DIR"/LumenText-*.deb 2>/dev/null | head -1 || true)"
+[ -n "$DEB" ] || die "No LumenText-*.deb found in $DIST_DIR. Run: npm run dist:deb"
 
 # Re-exec as root if needed (keeps the resolved $DEB path)
 if [ "$(id -u)" -ne 0 ]; then
@@ -72,4 +72,4 @@ ICON="$(ls /usr/share/icons/hicolor/512x512/apps/*[Ll]umen* 2>/dev/null | head -
 [ -n "$ICON" ] && echo "  icon   : $ICON" || warn "  no hicolor 512 icon found (may use a different path)"
 
 echo
-log "Done. Launch with:  $NEW_PKG   (or find 'Lumen' in the app menu; log out/in if the icon is cached)."
+log "Done. Launch with:  $NEW_PKG   (or find 'Lumen Text' in the app menu; log out/in if the icon is cached)."

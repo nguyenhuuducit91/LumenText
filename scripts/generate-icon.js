@@ -1,7 +1,7 @@
 'use strict';
 // Generates build/icons/<size>.png app icons with zero dependencies.
 //
-// Brand: "Lumen" — luminance / clarity. The mark is a geometric "L" monogram cut
+// Brand: "Lumen Text" — luminance / clarity. The mark is a geometric "L" monogram cut
 // from a luminous cyan→blue gradient, lit by a soft radial glow and a bright spark
 // at the top of the stem (the "light source"). Deep indigo squircle tile.
 // Rendered with 4x supersampling for anti-aliased edges at every size.
@@ -167,4 +167,4 @@ for (const S of [512, 256, 128, 64, 48, 32, 16]) {
 }
 // electron-builder's default app icon (build/icon.png must be 512x512).
 fs.writeFileSync(path.join(buildDir, 'icon.png'), icon512);
-console.log('Lumen icons written to', outDir, '+ build/icon.png');
+console.log('Lumen Text icons written to', outDir, '+ build/icon.png');

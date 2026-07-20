@@ -65,7 +65,7 @@ LUM.largefile = (function () {
   // Open a large file as a tab-backed viewer.
   async function openInTab(filePath) {
     build();
-    const info = await window.lumen.lfOpen(filePath); // { id, size, path }
+    const info = await window.lumenText.lfOpen(filePath); // { id, size, path }
     const lf = {
       id: info.id,
       path: filePath,
@@ -74,7 +74,7 @@ LUM.largefile = (function () {
       indexed: false,
       scrollTop: 0
     };
-    LUM.editor.makeLargeBuffer(window.lumen.basename(filePath), filePath, lf);
+    LUM.editor.makeLargeBuffer(window.lumenText.basename(filePath), filePath, lf);
   }
 
   function show(lf) {
@@ -82,7 +82,7 @@ LUM.largefile = (function () {
     current = lf;
     cache = { start: -1, lines: [] };
     el.root.classList.remove('hidden');
-    el.title.textContent = window.lumen.basename(lf.path);
+    el.title.textContent = window.lumenText.basename(lf.path);
     layout();
     el.scroll.scrollTop = lf.scrollTop || 0;
     render();
@@ -129,7 +129,7 @@ LUM.largefile = (function () {
     let lines = fromCache(line, count);
     if (!lines) {
       const token = ++fetchToken;
-      lines = await window.lumen.lfLines(current.id, line, count);
+      lines = await window.lumenText.lfLines(current.id, line, count);
       if (token !== fetchToken || !current) return; // superseded
       cache = { start: line, lines };
     }
@@ -190,7 +190,7 @@ LUM.largefile = (function () {
   }
 
   function init() {
-    window.lumen.onLfProgress(onProgress);
+    window.lumenText.onLfProgress(onProgress);
   }
 
   return { init, openInTab, show, hide, LINE_H };

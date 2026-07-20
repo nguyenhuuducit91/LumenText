@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: file:; img-src 'self' data: file:;" />
-  <title>Lumen</title>
+  <title>Lumen Text</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -161,7 +161,7 @@
   <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
   <script>
     // Configure the loader against the local Monaco bundle exposed by preload.
-    const VS = window.lumen.vsBase; // file:///.../monaco-editor/min/vs
+    const VS = window.lumenText.vsBase; // file:///.../monaco-editor/min/vs
     require.config({
       paths: { vs: VS },
       'vs/nls': { availableLanguages: {} } // keep default English UI strings
